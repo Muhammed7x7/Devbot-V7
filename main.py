@@ -13,8 +13,9 @@
 ███████║██║  ██║██║     ███████╗██║  ██║██║███████╗██║ ╚████║╚██████╗███████╗
 ╚══════╝╚═╝  ╚═╝╚═╝     ╚══════╝╚═╝  ╚═╝╚═╝╚══════╝╚═╝  ╚═══╝ ╚═════╝╚══════╝
 
-🔰 Version 7.0 - Railway Edition
+🔰 Version 7.0 - Railway Edition (Ağ Dayanıklı)
 👑 Geliştirici modu - DALL-E 3 + GPT-4
+🚀 Railway + Esnek Health Check + Akıllı Watchdog
 """
 
 import os
@@ -98,7 +99,9 @@ class DataManager:
             "chats": 0,
             "images": 0,
             "codes": 0,
-            "commands": {}
+            "commands": {},
+            "network_issues": 0,
+            "restarts": 0
         }
     
     def save(self):
@@ -107,6 +110,14 @@ class DataManager:
     
     def track(self, command: str):
         self.stats["commands"][command] = self.stats["commands"].get(command, 0) + 1
+        self.save()
+    
+    def track_network_issue(self):
+        self.stats["network_issues"] = self.stats.get("network_issues", 0) + 1
+        self.save()
+    
+    def track_restart(self):
+        self.stats["restarts"] = self.stats.get("restarts", 0) + 1
         self.save()
 
 db = DataManager()
@@ -233,7 +244,7 @@ class OpenAIClient:
         return self.image_history[-limit:]
 
 # =========================
-# DİSCORD BOT
+# DİSCORD BOT - Gelişmiş
 # =========================
 class DevBot(commands.Bot):
     def __init__(self):
@@ -248,10 +259,21 @@ class DevBot(commands.Bot):
         )
         
         self.start_time = datetime.now()
-        self.version = "7.0-railway"
+        self.version = "7.0-railway-network-proof"
         self.ai = OpenAIClient(config.OPENAI_API_KEY)
         self.owner_id = config.OWNER_ID
+        
+        # Health check değişkenleri
         self.last_heartbeat = time.time()
+        self.health_runner = None
+        self.health_fail_count = 0
+        self.consecutive_errors = 0
+        self.network_issues = 0
+        self.last_network_check = time.time()
+        
+        # İstatistikler
+        self.commands_used = 0
+        self.errors_count = 0
     
     async def setup_hook(self):
         await self.tree.sync()
@@ -259,9 +281,13 @@ class DevBot(commands.Bot):
     
     async def on_ready(self):
         self.last_heartbeat = time.time()
+        self.consecutive_errors = 0
+        self.network_issues = 0
+        
         logger.info(f"✅ Bot hazır: {self.user}")
         logger.info(f"🎨 DALL-E 3 aktif")
         logger.info(f"💬 GPT-4o-mini aktif")
+        logger.info(f"🌐 Ağ dayanıklı mod aktif")
         
         await self.change_presence(
             activity=discord.Activity(
@@ -275,6 +301,17 @@ class DevBot(commands.Bot):
             return
         self.last_heartbeat = time.time()
         await self.process_commands(message)
+    
+    async def on_command_error(self, ctx, error):
+        self.errors_count += 1
+        self.consecutive_errors += 1
+        logger.error(f"Komut hatası: {error}")
+        
+        # Çok fazla hata olursa uyar
+        if self.consecutive_errors > 10:
+            logger.warning(f"⚠️ Çok fazla hata: {self.consecutive_errors}")
+        
+        await super().on_command_error(ctx, error)
 
 bot = DevBot()
 
@@ -333,6 +370,7 @@ async def image_command(interaction: discord.Interaction, prompt: str, size: str
         
         result = await bot.ai.generate_image(prompt, size)
         db.track("image")
+        bot.commands_used += 1
         
         embed = Embed(
             title="🖼️ DALL-E 3",
@@ -358,6 +396,7 @@ async def image_command(interaction: discord.Interaction, prompt: str, size: str
         await interaction.followup.send(embed=embed, view=view)
         
     except Exception as e:
+        logger.error(f"Görsel komutu hatası: {e}")
         await interaction.followup.send(f"❌ Hata: {str(e)}")
 
 @bot.tree.command(name="imagine", description="⚡ Hızlı görsel")
@@ -406,6 +445,7 @@ async def chat_command(interaction: discord.Interaction, message: str):
     try:
         response = await bot.ai.chat(message)
         db.track("chat")
+        bot.commands_used += 1
         
         if len(response) > 1900:
             chunks = [response[i:i+1900] for i in range(0, len(response), 1900)]
@@ -415,6 +455,7 @@ async def chat_command(interaction: discord.Interaction, message: str):
             await interaction.followup.send(response)
             
     except Exception as e:
+        logger.error(f"Sohbet komutu hatası: {e}")
         await interaction.followup.send(f"❌ Hata: {e}")
 
 # =========================
@@ -435,6 +476,7 @@ async def code_command(interaction: discord.Interaction, prompt: str, language: 
     try:
         code = await bot.ai.generate_code(prompt, language)
         db.track("code")
+        bot.commands_used += 1
         
         filename = f"code_{int(time.time())}.{language}"
         filepath = config.WORKSPACE_DIR / filename
@@ -449,6 +491,7 @@ async def code_command(interaction: discord.Interaction, prompt: str, language: 
             )
             
     except Exception as e:
+        logger.error(f"Kod komutu hatası: {e}")
         await interaction.followup.send(f"❌ Hata: {e}")
 
 # =========================
@@ -474,6 +517,9 @@ async def status_command(interaction: discord.Interaction):
     embed.add_field(name="💬 Sohbetler", value=db.stats["commands"].get("chat", 0), inline=True)
     embed.add_field(name="🎨 Görseller", value=db.stats["commands"].get("image", 0), inline=True)
     embed.add_field(name="💻 Kodlar", value=db.stats["commands"].get("code", 0), inline=True)
+    embed.add_field(name="🌐 Ağ Sorunu", value=db.stats.get("network_issues", 0), inline=True)
+    embed.add_field(name="🔄 Restart", value=db.stats.get("restarts", 0), inline=True)
+    embed.add_field(name="❌ Hatalar", value=bot.errors_count, inline=True)
     
     await interaction.response.send_message(embed=embed)
 
@@ -544,43 +590,208 @@ async def on_interaction(interaction: discord.Interaction):
             await image_command(interaction, prompt, "1024x1024")
 
 # =========================
-# HEALTH CHECK
+# HEALTH CHECK - RAILWAY (ESNEK)
 # =========================
 async def health_check():
+    """Railway health check server - Esnek versiyon"""
+    
     async def handler(request):
-        if bot.is_ready() and (time.time() - bot.last_heartbeat) < 120:
-            return web.Response(text="OK")
-        return web.Response(status=503)
+        # Başarısız sayacı
+        fail_count = bot.health_fail_count
+        
+        # Bot durumunu kontrol et (daha esnek)
+        if not bot.is_ready():
+            # İlk 5 dakika boyunca dene
+            uptime = (datetime.now() - bot.start_time).total_seconds()
+            
+            if uptime < 300:  # 5 dakika
+                # Hala başlatılıyor olabilir
+                return web.Response(
+                    text=json.dumps({
+                        "status": "starting",
+                        "uptime": f"{uptime:.0f}s",
+                        "message": "Bot is starting up"
+                    }),
+                    status=200,
+                    content_type="application/json"
+                )
+            
+            fail_count += 1
+            bot.health_fail_count = fail_count
+            
+            # 5 başarısızlıktan sonra restart et
+            if fail_count >= 5:
+                logger.warning(f"Health check: Bot not ready after {fail_count} attempts")
+                return web.Response(status=503, text="Bot not ready")
+            
+            # İlk 4 başarısızlıkta bekle
+            return web.Response(
+                text=json.dumps({
+                    "status": "degraded",
+                    "fail_count": fail_count,
+                    "message": "Bot is recovering"
+                }),
+                status=200,
+                content_type="application/json"
+            )
+        
+        # Heartbeat kontrolü (daha esnek)
+        heartbeat_age = time.time() - bot.last_heartbeat
+        
+        if heartbeat_age > 600:  # 10 dakika
+            logger.warning(f"Health check: High heartbeat age ({heartbeat_age:.0f}s)")
+            
+            # Ama yine de 503 verme, sadece uyar
+            return web.Response(
+                text=json.dumps({
+                    "status": "warning",
+                    "heartbeat": f"{heartbeat_age:.0f}s",
+                    "message": "High heartbeat age but still running"
+                }),
+                status=200,
+                content_type="application/json"
+            )
+        
+        # Latency kontrolü
+        latency = bot.latency * 1000 if bot.latency else 0
+        if latency > 5000:  # 5 saniye
+            logger.warning(f"Health check: High latency ({latency:.0f}ms)")
+        
+        # Başarılı olursa sayacı sıfırla
+        bot.health_fail_count = 0
+        
+        # Her şey yolunda
+        return web.Response(
+            text=json.dumps({
+                "status": "healthy",
+                "uptime": str(datetime.now() - bot.start_time).split('.')[0],
+                "heartbeat": f"{heartbeat_age:.0f}s",
+                "latency": f"{latency:.0f}ms",
+                "commands_used": bot.commands_used,
+                "network_issues": bot.network_issues
+            }),
+            content_type="application/json"
+        )
+    
+    # Root endpoint
+    async def root_handler(request):
+        return web.Response(
+            text=json.dumps({
+                "service": "DevBot V7",
+                "status": "running",
+                "version": bot.version,
+                "timestamp": datetime.now().isoformat()
+            }),
+            content_type="application/json"
+        )
     
     app = web.Application()
-    app.router.add_get("/", handler)
+    app.router.add_get("/", root_handler)
     app.router.add_get("/health", handler)
     
     runner = web.AppRunner(app)
     await runner.setup()
     site = web.TCPSite(runner, "0.0.0.0", PORT)
     await site.start()
-    logger.info(f"Health check aktif: {PORT}")
+    
+    logger.info(f"✅ Health check server running on port {PORT}")
+    logger.info(f"📍 Endpoints: / (info), /health (status)")
+    logger.info(f"⚠️ Esnek mod: İlk 4 hata göz ardı edilir")
+    
+    return runner
 
 # =========================
-# WATCHDOG
+# WATCHDOG - AĞ DAYANIKLI
 # =========================
 async def watchdog():
+    """Monitor bot health - Ağ sorunlarına dayanıklı"""
+    consecutive_failures = 0
+    last_restart_attempt = 0
+    
     while True:
-        await asyncio.sleep(60)
-        if time.time() - bot.last_heartbeat > 180:
-            logger.warning("⚠️ Bot yanıt vermiyor, yeniden başlatılıyor...")
-            os._exit(1)
+        await asyncio.sleep(60)  # 60 saniyede bir kontrol
+        
+        try:
+            current_time = time.time()
+            
+            # 1. Basit kontroller
+            is_ready = bot.is_ready()
+            heartbeat_age = current_time - bot.last_heartbeat
+            latency = bot.latency * 1000 if bot.latency else 0
+            
+            # 2. Ağ sorunu kontrolü
+            if latency > 2000 or heartbeat_age > 240:  # 2 saniye gecikme veya 4 dakika heartbeat
+                bot.network_issues += 1
+                db.track_network_issue()
+                logger.warning(f"🌐 Ağ sorunu #{bot.network_issues} | Latency: {latency:.0f}ms | Heartbeat: {heartbeat_age:.0f}s")
+                
+                # 10 kez üst üste ağ sorunu olursa restart
+                if bot.network_issues >= 10:
+                    logger.critical("❌ 10 kez ağ sorunu - yeniden başlatılıyor")
+                    db.track_restart()
+                    os._exit(1)
+            else:
+                # Ağ sorunu düzeldiyse sayacı azalt
+                bot.network_issues = max(0, bot.network_issues - 1)
+            
+            # 3. Durum logla
+            status_msg = f"📊 Watchdog | Ready: {is_ready} | Heartbeat: {heartbeat_age:.0f}s | Latency: {latency:.0f}ms | Network Issues: {bot.network_issues}"
+            logger.info(status_msg)
+            
+            # 4. Kritik kontroller (gerçekten gerekirse restart)
+            if not is_ready:
+                consecutive_failures += 1
+                logger.warning(f"⚠️ Bot hazır değil #{consecutive_failures}")
+                
+                # 15 dakikadan fazla süredir hazır değilse restart
+                if consecutive_failures >= 15:  # 15 dakika
+                    logger.critical("❌ 15 dakikadır hazır değil - yeniden başlatılıyor")
+                    db.track_restart()
+                    os._exit(1)
+                continue
+            else:
+                # Hazırsa sayaç azalır
+                consecutive_failures = max(0, consecutive_failures - 1)
+            
+            # 5. Heartbeat kontrolü (çok uzun süredir yoksa)
+            if heartbeat_age > 900:  # 15 dakika
+                logger.critical(f"❌ 15 dakikadır heartbeat yok - yeniden başlatılıyor")
+                db.track_restart()
+                os._exit(1)
+            
+        except Exception as e:
+            logger.error(f"Watchdog hatası: {e}")
+            consecutive_failures += 1
+            
+            # Watchdog çok hata alırsa restart
+            if consecutive_failures > 10:
+                logger.critical("❌ Watchdog çok hata aldı - yeniden başlatılıyor")
+                db.track_restart()
+                os._exit(1)
 
 # =========================
-# GÜVENLİ KAPANMA
+# GRACEFUL SHUTDOWN
 # =========================
-def shutdown_handler(signum, frame):
-    logger.info("Kapatılıyor...")
-    loop = asyncio.get_event_loop()
-    loop.create_task(bot.close())
-    time.sleep(2)
+async def shutdown_handler(sig=None):
+    """Clean shutdown"""
+    logger.info("🛑 Shutting down...")
+    
+    # İstatistikleri kaydet
+    db.save()
+    
+    # Stop health check server
+    if bot.health_runner:
+        await bot.health_runner.cleanup()
+    
+    # Close bot
+    await bot.close()
+    
+    logger.info("👋 Goodbye!")
     sys.exit(0)
+
+def signal_handler(sig, frame):
+    """Handle shutdown signals"""
+    asyncio.create_task(shutdown_handler(sig))
 
 # =========================
 # ANA FONKSİYON
@@ -597,35 +808,41 @@ async def main():
 ║   ╚═════╝ ╚══════╝  ╚═══╝  ╚═════╝  ╚═══╝    ╚═╝     ║
 ║                                                          ║
 ║              RAILWAY EDITION v7.0                       ║
-║                 🎨 DALL-E 3 AKTİF                        ║
-║                 💬 GPT-4o-mini AKTİF                     ║
+║         🎨 DALL-E 3 + 💬 GPT-4 + 🌐 AĞ DAYANIKLI         ║
+║                                                          ║
+║  
 ║                                                          ║
 ╚══════════════════════════════════════════════════════════╝
     """)
     
     if not config.DISCORD_TOKEN:
-        print("❌ Discord token gerekli")
+        logger.error("❌ DISCORD_TOKEN not found")
         return
     
     if not config.OPENAI_API_KEY:
-        print("⚠️ OpenAI API anahtarı yok - görsel ve sohbet çalışmaz")
+        logger.warning("⚠️ OPENAI_API_KEY not found - image and chat features disabled")
     
-    # Sinyal işleyiciler
-    signal.signal(signal.SIGINT, shutdown_handler)
-    signal.signal(signal.SIGTERM, shutdown_handler)
-    
-    # Arkaplan görevleri
-    asyncio.create_task(health_check())
-    asyncio.create_task(watchdog())
+    # Set up signal handlers
+    signal.signal(signal.SIGINT, signal_handler)
+    signal.signal(signal.SIGTERM, signal_handler)
     
     try:
+        # Start health check server
+        bot.health_runner = await health_check()
+        
+        # Start watchdog
+        asyncio.create_task(watchdog())
+        
+        logger.info("🚀 Starting bot...")
         await bot.start(config.DISCORD_TOKEN)
+        
     except KeyboardInterrupt:
-        logger.info("Kapatılıyor...")
-        await bot.close()
+        await shutdown_handler()
+    except discord.LoginFailure:
+        logger.error("❌ Invalid Discord token")
     except Exception as e:
-        logger.error(f"Hata: {e}")
-        await bot.close()
+        logger.error(f"💥 Fatal error: {e}")
+        await shutdown_handler()
 
 if __name__ == "__main__":
     asyncio.run(main())
