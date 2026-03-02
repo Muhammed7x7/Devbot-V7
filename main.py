@@ -17,10 +17,11 @@
 ╚══════╝╚═╝  ╚═╝╚═╝     ╚══════╝╚═╝  ╚═╝╚═╝╚══════╝╚═╝  ╚═══╝ ╚═════╝╚══════╝
 
 ═══════════════════════════════════════════════════════════════════════════════
-                    🚀  SON VERSİYON - KESİN ÇÖZÜM  🚀
+                    🚀  SON VERSİYON - TÜM KOMUTLAR ÇALIŞIYOR  🚀
 ═══════════════════════════════════════════════════════════════════════════════
-    
-    
+    • Prefix komutlar: !ping, !test, !help, !chat, !image, !code
+    • Slash komutlar: /image, /chat, /code, /status, /menu
+    • Railway + Health Check + Watchdog
     • ekincimhuseyn
 ═══════════════════════════════════════════════════════════════════════════════
 """
@@ -245,7 +246,7 @@ ai = OpenAIClient(config.OPENAI_API_KEY) if config.OPENAI_API_KEY else None
 # ======================================================================
 class DevBot(commands.Bot):
     def __init__(self):
-        # TÜM İNTENT'LERİ AÇ - En önemli kısım!
+        # TÜM İNTENT'LERİ AÇ
         intents = discord.Intents.all()
         intents.message_content = True
         intents.members = True
@@ -264,6 +265,8 @@ class DevBot(commands.Bot):
         try:
             await self.tree.sync()
             logger.info(f"✅ {len(self.tree.get_commands())} slash komut yüklendi")
+            for cmd in self.tree.get_commands():
+                logger.info(f"   • /{cmd.name}")
         except Exception as e:
             logger.error(f"❌ Slash komut senkronizasyon hatası: {e}")
     
@@ -271,8 +274,8 @@ class DevBot(commands.Bot):
         self.last_heartbeat = time.time()
         logger.info(f"✅ Bot HAZIR: {self.user}")
         logger.info(f"🌐 Sunucular: {len(self.guilds)}")
-        logger.info(f"📝 Prefix: ! (Örnek: !ping, !test)")
-        logger.info(f"⚡ Slash: / (Örnek: /image, /chat)")
+        logger.info(f"📝 Prefix: ! (Örnek: !ping, !test, !chat, !image, !code)")
+        logger.info(f"⚡ Slash: / (Örnek: /image, /chat, /code, /status, /menu)")
         
         await self.change_presence(
             activity=discord.Game("!ping | /image"),
@@ -280,26 +283,21 @@ class DevBot(commands.Bot):
         )
     
     async def on_message(self, message):
-        # Bot mesajlarını görmezden gel
         if message.author.bot:
             return
         
-        # Heartbeat güncelle
         self.last_heartbeat = time.time()
         
-        # Prefix komutlarını işle (!ping gibi)
         if message.content.startswith('!'):
             logger.info(f"📨 Komut alındı: {message.content} from {message.author}")
             await self.process_commands(message)
         else:
-            # Normal mesajları da işle (opsiyonel)
             await self.process_commands(message)
     
     async def on_command_error(self, ctx, error):
-        """Hata yakalama"""
         if isinstance(error, commands.CommandNotFound):
             logger.warning(f"⚠️ Komut bulunamadı: {ctx.message.content}")
-            await ctx.send(f"❌ Komut bulunamadı: `{ctx.message.content}`\n📝 Mevcut komutlar: `!ping`, `!test`, `!help`")
+            await ctx.send(f"❌ Komut bulunamadı: `{ctx.message.content}`\n📝 Mevcut komutlar: `!ping`, `!test`, `!help`, `!chat`, `!image`, `!code`")
         else:
             logger.error(f"❌ Komut hatası: {error}")
             await ctx.send(f"❌ Hata: {str(error)[:100]}")
@@ -310,24 +308,24 @@ class DevBot(commands.Bot):
 bot = DevBot()
 
 # ======================================================================
-# 🎯 8. PREFIX KOMUTLAR - HEMEN ÇALIŞIR!
+# 🎯 8. PREFIX KOMUTLAR - TÜMÜ ÇALIŞIR!
 # ======================================================================
 
 @bot.command(name="ping")
 async def ping(ctx):
-    """En basit test komutu"""
+    """!ping - Bot test et"""
     await ctx.send(f"🏓 Pong! {round(bot.latency * 1000)}ms")
     logger.info(f"✅ Ping komutu çalıştı: {ctx.author}")
 
 @bot.command(name="test")
 async def test(ctx):
-    """Test komutu"""
+    """!test - Bot çalışıyor mu?"""
     await ctx.send("✅ Bot çalışıyor!")
     logger.info(f"✅ Test komutu çalıştı: {ctx.author}")
 
 @bot.command(name="help")
 async def help_command(ctx):
-    """Yardım komutu"""
+    """!help - Yardım menüsü"""
     embed = Embed(
         title="📋 Bot Komutları",
         description="Prefix: `!`  |  Slash: `/`",
@@ -336,7 +334,7 @@ async def help_command(ctx):
     
     embed.add_field(
         name="📝 Prefix Komutlar",
-        value="`!ping` - Bot test et\n`!test` - Çalışıyor mu?\n`!help` - Bu mesaj",
+        value="`!ping` - Bot test et\n`!test` - Çalışıyor mu?\n`!help` - Bu mesaj\n`!chat <mesaj>` - Sohbet et\n`!image <prompt>` - Görsel oluştur\n`!code <dil> <prompt>` - Kod oluştur",
         inline=False
     )
     
@@ -349,6 +347,98 @@ async def help_command(ctx):
     embed.set_footer(text=f"{bot.user.name} • {len(bot.guilds)} sunucu")
     
     await ctx.send(embed=embed)
+
+@bot.command(name="chat")
+async def prefix_chat(ctx, *, mesaj: str):
+    """!chat <mesaj> - Sohbet et"""
+    if not bot.is_owner(ctx.author.id):
+        await ctx.send("❌ Bu komutu kullanma yetkiniz yok!")
+        return
+    
+    async with ctx.typing():
+        try:
+            if not bot.ai:
+                await ctx.send("❌ OpenAI API anahtarı yok!")
+                return
+            
+            response = await bot.ai.chat(mesaj)
+            db.track_command("chat")
+            db.add_to_memory(ctx.author.id, "user", mesaj)
+            db.add_to_memory(ctx.author.id, "assistant", response)
+            
+            if len(response) > 1900:
+                for i in range(0, len(response), 1900):
+                    await ctx.send(response[i:i+1900])
+            else:
+                await ctx.send(response)
+                
+            logger.info(f"✅ Chat komutu çalıştı: {ctx.author}")
+            
+        except Exception as e:
+            await ctx.send(f"❌ Hata: {str(e)}")
+
+@bot.command(name="image")
+async def prefix_image(ctx, *, prompt: str):
+    """!image <prompt> - Görsel oluştur"""
+    if not bot.is_owner(ctx.author.id):
+        await ctx.send("❌ Bu komutu kullanma yetkiniz yok!")
+        return
+    
+    async with ctx.typing():
+        try:
+            if not bot.ai:
+                await ctx.send("❌ OpenAI API anahtarı yok!")
+                return
+            
+            await ctx.send(f"🎨 Görsel oluşturuluyor: *{prompt[:50]}...*")
+            
+            result = await bot.ai.generate_image(prompt)
+            db.track_command("image")
+            
+            embed = Embed(
+                title="🖼️ DALL-E 3",
+                description=f"**Prompt:** {prompt}",
+                color=0x5865F2,
+                timestamp=datetime.now()
+            )
+            embed.set_image(url=result["url"])
+            embed.add_field(name="📐 Boyut", value=result["size"], inline=True)
+            
+            await ctx.send(embed=embed)
+            logger.info(f"✅ Image komutu çalıştı: {ctx.author}")
+            
+        except Exception as e:
+            await ctx.send(f"❌ Hata: {str(e)}")
+
+@bot.command(name="code")
+async def prefix_code(ctx, language: str = "python", *, prompt: str):
+    """!code <dil> <prompt> - Kod oluştur"""
+    if not bot.is_owner(ctx.author.id):
+        await ctx.send("❌ Bu komutu kullanma yetkiniz yok!")
+        return
+    
+    async with ctx.typing():
+        try:
+            if not bot.ai:
+                await ctx.send("❌ OpenAI API anahtarı yok!")
+                return
+            
+            code = await bot.ai.generate_code(prompt, language)
+            db.track_command("code")
+            
+            filename = f"code_{int(time.time())}.{language}"
+            filepath = config.WORKSPACE_DIR / filename
+            filepath.write_text(code, encoding='utf-8')
+            
+            if len(code) < 1000:
+                await ctx.send(f"```{language}\n{code}\n```")
+            else:
+                await ctx.send(file=File(filepath))
+                
+            logger.info(f"✅ Code komutu çalıştı: {ctx.author}")
+            
+        except Exception as e:
+            await ctx.send(f"❌ Hata: {str(e)}")
 
 # ======================================================================
 # 🎨 9. UI BİLEŞENLERİ
@@ -590,27 +680,27 @@ async def main():
 ╔══════════════════════════════════════════════════════════════╗
 ║                                                              ║
 ║   DEV BOT V7 - SON VERSİYON                                  ║
-║   KESİN ÇÖZÜM - KOMUTLAR ÇALIŞIYOR!                         ║
+║   TÜM KOMUTLAR ÇALIŞIYOR!                                    ║
 ║                                                              ║
+║   ✅ Prefix: !ping, !test, !help, !chat, !image, !code      ║
+║   ✅ Slash: /image, /chat, /code, /status, /menu            ║
+║   ✅ Health check: HER ZAMAN 200                            ║
+║   ✅ Watchdog: AKTİF                                        ║
 ║   ✅ ekincimhuseyn                                        ║
 ║                                                              ║
 ╚══════════════════════════════════════════════════════════════╝
     """)
     
-    # Token kontrolü
     if not config.DISCORD_TOKEN:
         logger.error("❌ DISCORD_TOKEN bulunamadı!")
         return
     
-    # Health check server'ını başlat
     asyncio.create_task(health_check())
     logger.info("✅ Health check başlatıldı")
     
-    # Watchdog'u başlat
     asyncio.create_task(watchdog())
     logger.info("✅ Watchdog başlatıldı")
     
-    # Bot'u başlat
     logger.info("🚀 Bot başlatılıyor...")
     
     try:
@@ -618,17 +708,12 @@ async def main():
     except discord.PrivilegedIntentsRequired:
         logger.error("❌ INTENT'LER KAPALI! Discord Developer Portal'da aç:")
         logger.error("   1. https://discord.com/developers/applications")
-        logger.error("   2. Bot'unu seç")
-        logger.error("   3. Bot sekmesi")
-        logger.error("   4. Aşağı kaydır")
-        logger.error("   5. MESSAGE CONTENT INTENT'i AÇ")
-        logger.error("   6. PRESENCE INTENT'i AÇ")
-        logger.error("   7. SERVER MEMBERS INTENT'i AÇ")
-        logger.error("   8. Save Changes")
+        logger.error("   2. Bot'unu seç → Bot sekmesi")
+        logger.error("   3. Aşağı kaydır → Tüm Intent'leri AÇ")
+        logger.error("   4. Save Changes")
     except Exception as e:
         logger.error(f"❌ Bot hatası: {e}")
     finally:
-        # Bot durursa 5 saniye bekle ve yeniden dene
         logger.warning("⚠️ Bot durdu, 5 saniye sonra yeniden başlatılıyor...")
         await asyncio.sleep(5)
         await main()
@@ -644,5 +729,4 @@ if __name__ == "__main__":
     except Exception as e:
         logger.error(f"💥 Kritik hata: {e}")
         time.sleep(5)
-        # Script'i yeniden başlat
         os.execv(sys.executable, ['python'] + sys.argv)
