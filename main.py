@@ -181,21 +181,24 @@ class DataManager:
 db = DataManager()
 
 # ======================================================================
-
 # ======================================================================
-# 🤖 6. GEMINI İSTEMCİSİ - DOĞRUDAN REST API
+# 🤖 6. GEMINI İSTEMCİSİ - ACİL DÜZELTME
 # ======================================================================
 class GeminiClient:
-    def __init__(self, api_key: str):
-        self.api_key = api_key
+    def __init__(self):
+        # API key'i DOĞRUDAN os.getenv ile al
+        self.api_key = os.getenv("GEMINI_API_KEY", "")
         self.available = False
-        self.base_url = "https://generativelanguage.googleapis.com/v1beta"  # /v1beta/ ile!
+        self.base_url = "https://generativelanguage.googleapis.com/v1beta"
         
-        if api_key:
+        print(f"🔑 Gemini API Key: {'✅ VAR' if self.api_key else '❌ YOK'}")
+        print(f"📌 Key (ilk 10 karakter): {self.api_key[:10]}..." if self.api_key else "❌")
+        
+        if self.api_key:
             try:
-                # Sadece API key'i test et
+                # Test isteği yap
                 import requests
-                test_url = f"{self.base_url}/models/gemini-pro:generateContent?key={api_key}"
+                test_url = f"{self.base_url}/models/gemini-pro:generateContent?key={self.api_key}"
                 test_data = {
                     "contents": [{
                         "parts": [{"text": "Merhaba"}]
@@ -205,17 +208,18 @@ class GeminiClient:
                 response = requests.post(test_url, json=test_data, timeout=5)
                 if response.status_code == 200:
                     self.available = True
-                    print(f"✅ Gemini API hazır: {self.base_url}")
+                    print(f"✅ Gemini API bağlantısı başarılı!")
                 else:
-                    print(f"⚠️ Gemini test başarısız: {response.status_code}")
+                    print(f"❌ Gemini API hatası: {response.status_code} - {response.text}")
                     
             except Exception as e:
                 print(f"❌ Gemini bağlantı hatası: {e}")
+        else:
+            print("❌ GEMINI_API_KEY bulunamadı! Railway'de eklemeyi unutma.")
     
     async def chat(self, message: str, user_id: int = None) -> str:
-        """Gemini ile sohbet et - doğrudan REST API"""
-        if not self.available:
-            return "⚠️ Gemini API bağlantısı yok!"
+        if not self.available or not self.api_key:
+            return "❌ Gemini API bağlantısı yok! Lütfen GEMINI_API_KEY ekleyin.\nhttps://aistudio.google.com/app/apikey"
         
         try:
             import requests
@@ -227,7 +231,6 @@ class GeminiClient:
                 }]
             }
             
-            # Async olarak çalıştır
             loop = asyncio.get_event_loop()
             response = await loop.run_in_executor(
                 None,
@@ -238,14 +241,13 @@ class GeminiClient:
                 result = response.json()
                 return result['candidates'][0]['content']['parts'][0]['text']
             else:
-                return f"API Hatası: {response.status_code} - {response.text}"
+                return f"API Hatası ({response.status_code}): {response.text[:100]}"
                 
         except Exception as e:
             return f"Bağlantı hatası: {str(e)}"
     
     async def generate_code(self, prompt: str, language: str = "python") -> str:
-        """Kod üret"""
-        if not self.available:
+        if not self.available or not self.api_key:
             return "# API bağlantısı yok!"
         
         try:
@@ -270,7 +272,6 @@ class GeminiClient:
                 result = response.json()
                 code = result['candidates'][0]['content']['parts'][0]['text']
                 
-                # Markdown temizliği
                 if code.startswith("```"):
                     lines = code.split('\n')
                     if len(lines) > 2:
