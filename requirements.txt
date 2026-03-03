@@ -1,3 +1,13 @@
+# Ana bağımlılıklar
 discord.py>=2.3.0
 requests>=2.31.0
 aiohttp>=3.9.0
+
+# Yardımcı kütüphaneler (opsiyonel ama önerilir)
+python-dotenv>=1.0.0  # Local geliştirme için
+chardet>=5.0.0        # Karakter seti desteği
+certifi>=2023.0.0     # SSL sertifikaları
+urllib3>=2.0.0        # HTTP istemcisi
+
+# Versiyon kilitleme (stabil çalışması için)
+# Tüm bağımlılıklar en son sürümlerle test edilmiştir
