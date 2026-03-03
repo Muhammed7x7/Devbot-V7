@@ -17,11 +17,11 @@
 ╚══════╝╚═╝  ╚═╝╚═╝     ╚══════╝╚═╝  ╚═╝╚═╝╚══════╝╚═╝  ╚═══╝ ╚═════╝╚══════╝
 
 ═══════════════════════════════════════════════════════════════════════════════
-                    🚀  GEMINI ENTEGRE - ÜCRETSİZ!  🚀
+                    🚀  GEMINI + OPENAI ENTEGRE  🚀
 ═══════════════════════════════════════════════════════════════════════════════
-    • Prefix komutlar: !ping, !test, !help, !chat, !image, !code
-    • Slash komutlar: /image, /chat, /code, /status, /menu
-    • Gemini AI: 60 istek/dakika ÜCRETSİZ!
+    • Prefix: !ping, !test, !help, !chat, !image, !code
+    • Slash: /image, /chat, /code, /status, /menu
+    • Gemini AI (ücretsiz) + OpenAI DALL-E (görsel)
     • Railway + Health Check + Watchdog
     • ekincimhuseyn
 ═══════════════════════════════════════════════════════════════════════════════
@@ -40,7 +40,7 @@ import signal
 import base64
 from datetime import datetime
 from pathlib import Path
-from typing import Optional, Dict, List, Any, Union
+from typing import Optional, Dict, List, Any
 
 import discord
 from discord import app_commands
@@ -48,22 +48,11 @@ from discord.ext import commands
 from discord.ui import Button, View, Modal, TextInput
 from discord import Embed, File
 
-# Gemini için yeni kütüphane
-try:
-    import google.generativeai as genai
-    GEMINI_AVAILABLE = True
-except ImportError:
-    GEMINI_AVAILABLE = False
-    print("⚠️ google-generativeai kütüphanesi yok! pip install google-generativeai")
-
-# OpenAI hala opsiyonel (görsel için)
-try:
-    from openai import OpenAI
-    OPENAI_AVAILABLE = True
-except ImportError:
-    OPENAI_AVAILABLE = False
-
+from openai import OpenAI
 from aiohttp import web
+
+# Gemini için requests kullanacağız (SDK sorunlu)
+import requests
 
 # ======================================================================
 # ⚙️ 2. RAILWAY KONFİGÜRASYONU
@@ -78,8 +67,8 @@ BASE_DIR = "/tmp" if RAILWAY_ENV else "."
 class Config:
     def __init__(self):
         self.DISCORD_TOKEN = os.getenv('DISCORD_TOKEN', '')
-        self.GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", os.getenv("OPENAI_API_KEY", ""))  # Önce Gemini, yoksa OpenAI
-        self.OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")  # Görsel için
+        self.OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
+        self.GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
         self.OWNER_IDS = [int(x) for x in os.getenv('OWNER_IDS', '').split(',') if x.strip()]
         
         self.WORKSPACE_DIR = Path(BASE_DIR) / "workspace"
@@ -89,12 +78,12 @@ class Config:
         for dir_path in [self.WORKSPACE_DIR, self.DATA_DIR, self.LOGS_DIR]:
             dir_path.mkdir(parents=True, exist_ok=True)
         
-        # Model ayarları
-        self.GEMINI_MODEL = "gemini-1.5-flash"  # Hızlı model (ücretsiz)
-        self.GEMINI_PRO_MODEL = "gemini-1.5-pro"  # Güçlü model
         self.OPENAI_CHAT_MODEL = "gpt-4o-mini"
         self.OPENAI_CODE_MODEL = "gpt-4-turbo"
         self.OPENAI_IMAGE_MODEL = "dall-e-3"
+        
+        self.GEMINI_MODEL = "gemini-pro"  # En stabil model
+        self.GEMINI_API_URL = "https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent"
         
         self.HEALTH_CHECK_INTERVAL = 60
         self.NETWORK_TOLERANCE = 10
@@ -181,50 +170,51 @@ class DataManager:
 db = DataManager()
 
 # ======================================================================
-# ======================================================================
-# 🤖 6. GEMINI İSTEMCİSİ - ACİL DÜZELTME
+# 🤖 6. GEMINI İSTEMCİSİ (ÜCRETSİZ!)
 # ======================================================================
 class GeminiClient:
-    def __init__(self):
-        # API key'i DOĞRUDAN os.getenv ile al
-        self.api_key = os.getenv("GEMINI_API_KEY", "")
+    def __init__(self, api_key: str):
+        self.api_key = api_key
         self.available = False
-        self.base_url = "https://generativelanguage.googleapis.com/v1beta"
+        self.model = config.GEMINI_MODEL
+        self.api_url = f"{config.GEMINI_API_URL}?key={api_key}"
         
-        print(f"🔑 Gemini API Key: {'✅ VAR' if self.api_key else '❌ YOK'}")
-        print(f"📌 Key (ilk 10 karakter): {self.api_key[:10]}..." if self.api_key else "❌")
-        
-        if self.api_key:
+        if api_key:
             try:
                 # Test isteği yap
-                import requests
-                test_url = f"{self.base_url}/models/gemini-pro:generateContent?key={self.api_key}"
                 test_data = {
                     "contents": [{
                         "parts": [{"text": "Merhaba"}]
                     }]
                 }
                 
-                response = requests.post(test_url, json=test_data, timeout=5)
+                response = requests.post(
+                    self.api_url,
+                    json=test_data,
+                    timeout=5,
+                    headers={"Content-Type": "application/json"}
+                )
+                
                 if response.status_code == 200:
                     self.available = True
-                    print(f"✅ Gemini API bağlantısı başarılı!")
+                    logger.info("✅ Gemini API bağlantısı kuruldu (ÜCRETSİZ!)")
+                    logger.info(f"   • Model: {self.model}")
+                    logger.info(f"   • 60 istek/dakika")
                 else:
-                    print(f"❌ Gemini API hatası: {response.status_code} - {response.text}")
+                    logger.error(f"❌ Gemini test başarısız: {response.status_code}")
+                    logger.error(f"   {response.text}")
                     
             except Exception as e:
-                print(f"❌ Gemini bağlantı hatası: {e}")
+                logger.error(f"❌ Gemini bağlantı hatası: {e}")
         else:
-            print("❌ GEMINI_API_KEY bulunamadı! Railway'de eklemeyi unutma.")
+            logger.warning("⚠️ GEMINI_API_KEY bulunamadı, Gemini özellikleri devre dışı")
     
-    async def chat(self, message: str, user_id: int = None) -> str:
-        if not self.available or not self.api_key:
+    async def chat(self, message: str) -> str:
+        """Gemini ile sohbet et"""
+        if not self.available:
             return "❌ Gemini API bağlantısı yok! Lütfen GEMINI_API_KEY ekleyin.\nhttps://aistudio.google.com/app/apikey"
         
         try:
-            import requests
-            url = f"{self.base_url}/models/gemini-pro:generateContent?key={self.api_key}"
-            
             data = {
                 "contents": [{
                     "parts": [{"text": message}]
@@ -234,27 +224,37 @@ class GeminiClient:
             loop = asyncio.get_event_loop()
             response = await loop.run_in_executor(
                 None,
-                lambda: requests.post(url, json=data, timeout=30)
+                lambda: requests.post(
+                    self.api_url,
+                    json=data,
+                    timeout=30,
+                    headers={"Content-Type": "application/json"}
+                )
             )
             
             if response.status_code == 200:
                 result = response.json()
-                return result['candidates'][0]['content']['parts'][0]['text']
+                db.track_metric("gemini_calls")
+                
+                try:
+                    return result['candidates'][0]['content']['parts'][0]['text']
+                except (KeyError, IndexError):
+                    return f"Yanıt formatı beklenmedik: {result}"
             else:
-                return f"API Hatası ({response.status_code}): {response.text[:100]}"
+                return f"API Hatası ({response.status_code}): {response.text[:200]}"
                 
         except Exception as e:
             return f"Bağlantı hatası: {str(e)}"
     
     async def generate_code(self, prompt: str, language: str = "python") -> str:
-        if not self.available or not self.api_key:
-            return "# API bağlantısı yok!"
+        """Gemini ile kod üret"""
+        if not self.available:
+            return "# Gemini API bağlantısı yok!"
         
         try:
-            import requests
-            url = f"{self.base_url}/models/gemini-pro:generateContent?key={self.api_key}"
-            
-            full_prompt = f"Write {language} code for: {prompt}. Only output code, no explanations."
+            full_prompt = f"""Write {language} code for the following request. 
+Only output the code, no explanations, no markdown formatting.
+Request: {prompt}"""
             
             data = {
                 "contents": [{
@@ -265,18 +265,29 @@ class GeminiClient:
             loop = asyncio.get_event_loop()
             response = await loop.run_in_executor(
                 None,
-                lambda: requests.post(url, json=data, timeout=30)
+                lambda: requests.post(
+                    self.api_url,
+                    json=data,
+                    timeout=30,
+                    headers={"Content-Type": "application/json"}
+                )
             )
             
             if response.status_code == 200:
                 result = response.json()
-                code = result['candidates'][0]['content']['parts'][0]['text']
+                db.track_metric("gemini_calls")
                 
-                if code.startswith("```"):
-                    lines = code.split('\n')
-                    if len(lines) > 2:
-                        code = '\n'.join(lines[1:-1])
-                return code
+                try:
+                    code = result['candidates'][0]['content']['parts'][0]['text']
+                    
+                    # Markdown temizliği
+                    if code.startswith("```"):
+                        lines = code.split('\n')
+                        if len(lines) > 2:
+                            code = '\n'.join(lines[1:-1])
+                    return code
+                except (KeyError, IndexError):
+                    return f"# Yanıt formatı hatası"
             else:
                 return f"# Hata: {response.status_code}"
                 
@@ -293,7 +304,7 @@ class OpenAIClient:
         self.image_history = []
         self.available = False
         
-        if api_key and OPENAI_AVAILABLE:
+        if api_key:
             try:
                 self.client = OpenAI(api_key=api_key)
                 self.available = True
@@ -307,7 +318,6 @@ class OpenAIClient:
             raise Exception("OpenAI API anahtarı gerekli! Görsel üretilemiyor.")
         
         try:
-            # Boyut kontrolü
             valid_sizes = ["1024x1024", "1792x1024", "1024x1792"]
             if size not in valid_sizes:
                 size = "1024x1024"
@@ -360,20 +370,20 @@ class DevBot(commands.Bot):
         
         self.start_time = datetime.now()
         
-        # Gemini (ana AI)
+        # İstemcileri başlat
         self.gemini = GeminiClient(config.GEMINI_API_KEY)
-        
-        # OpenAI (sadece görsel için)
         self.openai = OpenAIClient(config.OPENAI_API_KEY) if config.OPENAI_API_KEY else None
         
-        # AI seçimi (öncelik Gemini)
-        self.ai = self.gemini if self.gemini.available else None
+        # OpenAI'i eski kodla uyumluluk için tut (chat için değil, sadece görsel)
+        self.ai = self.openai
         
         self.owner_ids = config.OWNER_IDS
         self.last_heartbeat = time.time()
         self.network_issues = 0
         
-        logger.info(f"🤖 AI Durumu: Gemini={'✅' if self.gemini.available else '❌'}, OpenAI={'✅' if self.openai else '❌'}")
+        # Durum özeti
+        logger.info(f"🤖 Gemini: {'✅ AKTİF (ÜCRETSİZ!)' if self.gemini.available else '❌ PASIF'}")
+        logger.info(f"🎨 OpenAI: {'✅ AKTİF (görsel için)' if self.openai else '❌ PASIF'}")
     
     async def setup_hook(self):
         # Slash komutlarını senkronize et
@@ -392,11 +402,9 @@ class DevBot(commands.Bot):
         logger.info(f"📝 Prefix: ! (Örnek: !ping, !test, !chat, !image, !code)")
         logger.info(f"⚡ Slash: / (Örnek: /image, /chat, /code, /status, /menu)")
         
-        if self.gemini.available:
-            logger.info(f"🤖 Gemini AKTİF - 60 istek/dakika ÜCRETSİZ!")
-        
+        status_text = "Gemini AI ✨" if self.gemini.available else "!ping | /image"
         await self.change_presence(
-            activity=discord.Game("!ping | Gemini AI ✨"),
+            activity=discord.Game(status_text),
             status=discord.Status.online
         )
     
@@ -426,7 +434,7 @@ class DevBot(commands.Bot):
 bot = DevBot()
 
 # ======================================================================
-# 🎯 9. PREFIX KOMUTLAR
+# 🎯 9. PREFIX KOMUTLAR - GEMINI ENTEGRE
 # ======================================================================
 
 @bot.command(name="ping")
@@ -437,10 +445,17 @@ async def ping(ctx):
 
 @bot.command(name="test")
 async def test(ctx):
-    """!test - Bot çalışıyor mu?"""
-    ai_status = "Gemini ✅" if bot.gemini.available else "Gemini ❌"
-    openai_status = "OpenAI ✅" if bot.openai else "OpenAI ❌"
-    await ctx.send(f"✅ Bot çalışıyor!\n🤖 {ai_status}\n🎨 {openai_status}")
+    """!test - Bot durumunu göster"""
+    gemini_status = "✅ AKTİF (ÜCRETSİZ!)" if bot.gemini.available else "❌ PASIF"
+    openai_status = "✅ AKTİF" if bot.openai else "❌ PASIF"
+    
+    embed = Embed(title="🤖 Bot Durumu", color=0x4285F4)
+    embed.add_field(name="⚡ Ping", value=f"{round(bot.latency * 1000)}ms", inline=True)
+    embed.add_field(name="🌐 Sunucular", value=len(bot.guilds), inline=True)
+    embed.add_field(name="🤖 Gemini", value=gemini_status, inline=False)
+    embed.add_field(name="🎨 OpenAI", value=openai_status, inline=False)
+    
+    await ctx.send(embed=embed)
     logger.info(f"✅ Test komutu çalıştı: {ctx.author}")
 
 @bot.command(name="help")
@@ -448,13 +463,15 @@ async def help_command(ctx):
     """!help - Yardım menüsü"""
     embed = Embed(
         title="📋 Bot Komutları",
-        description="Prefix: `!`  |  Slash: `/`\n🤖 Gemini AI: 60 istek/dk ÜCRETSİZ!",
+        description="Prefix: `!`  |  Slash: `/`",
         color=0x5865F2
     )
     
+    ai_info = "Gemini AI (ÜCRETSİZ!)" if bot.gemini.available else "OpenAI"
+    
     embed.add_field(
         name="📝 Prefix Komutlar",
-        value="`!ping` - Bot test et\n`!test` - Durum göster\n`!help` - Bu mesaj\n`!chat <mesaj>` - Sohbet et\n`!image <prompt>` - Görsel oluştur\n`!code <dil> <prompt>` - Kod oluştur\n`!analyze <dil> <kod>` - Kodu analiz et",
+        value=f"`!ping` - Bot test et\n`!test` - Durum göster\n`!help` - Bu mesaj\n`!chat <mesaj>` - {ai_info} ile sohbet\n`!image <prompt>` - Görsel oluştur (OpenAI)\n`!code <dil> <prompt>` - Kod oluştur (Gemini)",
         inline=False
     )
     
@@ -470,29 +487,45 @@ async def help_command(ctx):
 
 @bot.command(name="chat")
 async def prefix_chat(ctx, *, mesaj: str):
-    """!chat <mesaj> - Gemini ile sohbet et"""
+    """!chat <mesaj> - Gemini ile sohbet et (ÜCRETSİZ!)"""
     if not bot.is_owner(ctx.author.id):
         await ctx.send("❌ Bu komutu kullanma yetkiniz yok!")
         return
     
     async with ctx.typing():
         try:
-            if not bot.gemini.available:
-                await ctx.send("❌ Gemini API bağlantısı yok! Lütfen GEMINI_API_KEY ekleyin.")
-                return
-            
-            response = await bot.gemini.chat(mesaj, ctx.author.id)
-            db.track_command("chat")
-            db.add_to_memory(ctx.author.id, "user", mesaj)
-            db.add_to_memory(ctx.author.id, "assistant", response)
-            
-            if len(response) > 1900:
-                for i in range(0, len(response), 1900):
-                    await ctx.send(response[i:i+1900])
-            else:
-                await ctx.send(response)
+            # Önce Gemini dene
+            if bot.gemini.available:
+                response = await bot.gemini.chat(mesaj)
+                db.track_command("chat")
+                db.add_to_memory(ctx.author.id, "user", mesaj)
+                db.add_to_memory(ctx.author.id, "assistant", response)
                 
-            logger.info(f"✅ Chat komutu çalıştı: {ctx.author}")
+                if len(response) > 1900:
+                    for i in range(0, len(response), 1900):
+                        await ctx.send(response[i:i+1900])
+                else:
+                    await ctx.send(response)
+                    
+                logger.info(f"✅ Gemini chat: {ctx.author}")
+            
+            # Gemini yoksa OpenAI dene
+            elif bot.ai and bot.ai.available:
+                response = await bot.ai.chat(mesaj)
+                db.track_command("chat")
+                db.add_to_memory(ctx.author.id, "user", mesaj)
+                db.add_to_memory(ctx.author.id, "assistant", response)
+                
+                if len(response) > 1900:
+                    for i in range(0, len(response), 1900):
+                        await ctx.send(response[i:i+1900])
+                else:
+                    await ctx.send(response)
+                    
+                logger.info(f"✅ OpenAI chat: {ctx.author}")
+            
+            else:
+                await ctx.send("❌ Hiçbir AI servisi çalışmıyor! Lütfen GEMINI_API_KEY veya OPENAI_API_KEY ekleyin.")
             
         except Exception as e:
             await ctx.send(f"❌ Hata: {str(e)}")
@@ -535,57 +568,45 @@ async def prefix_image(ctx, *, prompt: str):
 
 @bot.command(name="code")
 async def prefix_code(ctx, language: str = "python", *, prompt: str):
-    """!code <dil> <prompt> - Kod oluştur"""
+    """!code <dil> <prompt> - Gemini ile kod oluştur (ÜCRETSİZ!)"""
     if not bot.is_owner(ctx.author.id):
         await ctx.send("❌ Bu komutu kullanma yetkiniz yok!")
         return
     
     async with ctx.typing():
         try:
-            if not bot.gemini.available:
-                await ctx.send("❌ Gemini API bağlantısı yok!")
-                return
-            
-            code = await bot.gemini.generate_code(prompt, language)
-            db.track_command("code")
-            
-            filename = f"code_{int(time.time())}.{language}"
-            filepath = config.WORKSPACE_DIR / filename
-            filepath.write_text(code, encoding='utf-8')
-            
-            if len(code) < 1000:
-                await ctx.send(f"```{language}\n{code}\n```")
-            else:
-                await ctx.send(file=File(filepath))
+            if bot.gemini.available:
+                code = await bot.gemini.generate_code(prompt, language)
+                db.track_command("code")
                 
-            logger.info(f"✅ Code komutu çalıştı: {ctx.author}")
-            
-        except Exception as e:
-            await ctx.send(f"❌ Hata: {str(e)}")
-
-@bot.command(name="analyze")
-async def prefix_analyze(ctx, language: str = "python", *, code: str):
-    """!analyze <dil> <kod> - Kodu analiz et"""
-    if not bot.is_owner(ctx.author.id):
-        await ctx.send("❌ Bu komutu kullanma yetkiniz yok!")
-        return
-    
-    async with ctx.typing():
-        try:
-            if not bot.gemini.available:
-                await ctx.send("❌ Gemini API bağlantısı yok!")
-                return
-            
-            analysis = await bot.gemini.analyze_code(code, language)
-            db.track_command("analyze")
-            
-            if len(analysis) > 1900:
-                for i in range(0, len(analysis), 1900):
-                    await ctx.send(analysis[i:i+1900])
-            else:
-                await ctx.send(analysis)
+                filename = f"code_{int(time.time())}.{language}"
+                filepath = config.WORKSPACE_DIR / filename
+                filepath.write_text(code, encoding='utf-8')
                 
-            logger.info(f"✅ Analyze komutu çalıştı: {ctx.author}")
+                if len(code) < 1000:
+                    await ctx.send(f"```{language}\n{code}\n```")
+                else:
+                    await ctx.send(file=File(filepath))
+                    
+                logger.info(f"✅ Gemini code: {ctx.author}")
+            
+            elif bot.ai and bot.ai.available:
+                code = await bot.ai.generate_code(prompt, language)
+                db.track_command("code")
+                
+                filename = f"code_{int(time.time())}.{language}"
+                filepath = config.WORKSPACE_DIR / filename
+                filepath.write_text(code, encoding='utf-8')
+                
+                if len(code) < 1000:
+                    await ctx.send(f"```{language}\n{code}\n```")
+                else:
+                    await ctx.send(file=File(filepath))
+                    
+                logger.info(f"✅ OpenAI code: {ctx.author}")
+            
+            else:
+                await ctx.send("❌ Kod üretme servisi çalışmıyor! Lütfen GEMINI_API_KEY ekleyin.")
             
         except Exception as e:
             await ctx.send(f"❌ Hata: {str(e)}")
@@ -597,7 +618,7 @@ class ImageModal(Modal, title="🎨 Görsel Oluştur (DALL-E 3)"):
     prompt = TextInput(
         label="Ne görmek istersin?",
         style=discord.TextStyle.paragraph,
-        placeholder="Örnek: Uzaylı bir kedi, neon ışıklar, fantastik manzara...",
+        placeholder="Örnek: Uzaylı bir kedi, neon ışıklar...",
         required=True,
         max_length=1000
     )
@@ -605,20 +626,18 @@ class ImageModal(Modal, title="🎨 Görsel Oluştur (DALL-E 3)"):
         label="Boyut (1024x1024 / 1792x1024 / 1024x1792)",
         placeholder="1024x1024",
         default="1024x1024",
-        required=False,
-        max_length=11
+        required=False
     )
     
     async def on_submit(self, interaction: discord.Interaction):
         await image_command(interaction, self.prompt.value, self.size.value)
 
-class ChatModal(Modal, title="💬 Gemini ile Sohbet"):
+class ChatModal(Modal, title="💬 Gemini ile Sohbet (ÜCRETSİZ!)"):
     message = TextInput(
         label="Mesajınız",
         style=discord.TextStyle.paragraph,
         placeholder="Ne sormak istersin?",
-        required=True,
-        max_length=2000
+        required=True
     )
     
     async def on_submit(self, interaction: discord.Interaction):
@@ -628,7 +647,7 @@ class CodeModal(Modal, title="💻 Kod Oluştur (Gemini)"):
     prompt = TextInput(
         label="Ne yapmak istiyorsun?",
         style=discord.TextStyle.paragraph,
-        placeholder="Örnek: Bir web sunucusu, hesap makinesi, oyun...",
+        placeholder="Örnek: Bir web sunucusu, hesap makinesi...",
         required=True,
         max_length=1000
     )
@@ -648,7 +667,7 @@ class CodeModal(Modal, title="💻 Kod Oluştur (Gemini)"):
 # ======================================================================
 
 @bot.tree.command(name="image", description="🎨 Görsel oluştur (DALL-E 3)")
-@app_commands.describe(prompt="Ne görmek istersin?", size="Boyut (1024x1024, 1792x1024, 1024x1792)")
+@app_commands.describe(prompt="Ne görmek istersin?", size="Boyut")
 async def image_command(interaction: discord.Interaction, prompt: str, size: str = "1024x1024"):
     if not bot.is_owner(interaction.user.id):
         return await interaction.response.send_message("❌ Yetkiniz yok!", ephemeral=True)
@@ -683,7 +702,7 @@ async def image_command(interaction: discord.Interaction, prompt: str, size: str
     except Exception as e:
         await interaction.followup.send(f"❌ Hata: {str(e)}")
 
-@bot.tree.command(name="chat", description="💬 Gemini ile sohbet et (ücretsiz!)")
+@bot.tree.command(name="chat", description="💬 Gemini ile sohbet et (ÜCRETSİZ!)")
 @app_commands.describe(message="Mesajınız")
 async def chat_command(interaction: discord.Interaction, message: str):
     if not bot.is_owner(interaction.user.id):
@@ -696,7 +715,7 @@ async def chat_command(interaction: discord.Interaction, message: str):
             await interaction.followup.send("❌ Gemini API bağlantısı yok! Lütfen GEMINI_API_KEY ekleyin.")
             return
         
-        response = await bot.gemini.chat(message, interaction.user.id)
+        response = await bot.gemini.chat(message)
         db.track_command("chat")
         db.add_to_memory(interaction.user.id, "user", message)
         db.add_to_memory(interaction.user.id, "assistant", response)
@@ -704,7 +723,7 @@ async def chat_command(interaction: discord.Interaction, message: str):
         embed = Embed(
             title="💬 Gemini Sohbet",
             description=f"**60 istek/dakika ÜCRETSİZ!**",
-            color=0x4285F4  # Google mavisi
+            color=0x4285F4
         )
         embed.add_field(name="📤 Siz", value=f"```{message[:500]}```", inline=False)
         embed.add_field(name="📥 Gemini", value=f"```{response[:1500]}```", inline=False)
@@ -724,7 +743,7 @@ async def code_command(interaction: discord.Interaction, prompt: str, language: 
     
     try:
         if not bot.gemini.available:
-            await interaction.followup.send("❌ Gemini API bağlantısı yok!")
+            await interaction.followup.send("❌ Gemini API bağlantısı yok! Lütfen GEMINI_API_KEY ekleyin.")
             return
         
         code = await bot.gemini.generate_code(prompt, language)
@@ -766,7 +785,7 @@ async def status_command(interaction: discord.Interaction):
     embed.add_field(name="🌐 Sunucular", value=len(bot.guilds), inline=True)
     embed.add_field(name="🤖 Gemini", value="✅ Aktif" if bot.gemini.available else "❌ Pasif", inline=True)
     embed.add_field(name="🎨 OpenAI", value="✅ Aktif" if bot.openai else "❌ Pasif", inline=True)
-    embed.add_field(name="📊 İstatistik", value=f"Sohbet: {db.stats.get('chats', 0)}", inline=True)
+    embed.add_field(name="📊 Gemini Kullanım", value=db.stats.get("gemini_calls", 0), inline=True)
     
     await interaction.response.send_message(embed=embed)
 
@@ -777,7 +796,7 @@ async def menu_command(interaction: discord.Interaction):
     
     embed = Embed(
         title="📋 Ana Menü",
-        description="Gemini AI ile güçlendirilmiş bot",
+        description="Gemini AI ile güçlendirilmiş bot (ÜCRETSİZ!)",
         color=0x4285F4
     )
     
@@ -879,12 +898,12 @@ async def main():
     print("""
 ╔══════════════════════════════════════════════════════════════╗
 ║                                                              ║
-║   DEV BOT V7 - GEMINI ENTEGRE                                ║
-║   ✨ 60 İSTEK/DAKİKA ÜCRETSİZ!                               ║
+║   DEV BOT V7 - GEMINI + OPENAI ENTEGRE                      ║
+║   ✨ GEMINI: 60 İSTEK/DAKİKA ÜCRETSİZ!                       ║
 ║                                                              ║
 ║   ✅ Prefix: !ping, !test, !help, !chat, !image, !code      ║
 ║   ✅ Slash: /image, /chat, /code, /status, /menu            ║
-║   ✅ Gemini AI: 60 istek/dk ÜCRETSİZ!                       ║
+║   ✅ Gemini AI: Sohbet ve kod ÜCRETSİZ!                     ║
 ║   ✅ DALL-E 3: Görsel üretimi                               ║
 ║   ✅ Health check: HER ZAMAN 200                            ║
 ║   ✅ Watchdog: AKTİF                                        ║
