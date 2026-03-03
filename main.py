@@ -15,7 +15,35 @@
 ║  • Owner: sadece belirlenen kişiler kullanabilir                            ║
 ╚══════════════════════════════════════════════════════════════════════════════╝
 """
+# ======================================================================
+# 🔍 DEBUG - ENVIRONMENT KONTROL
+# ======================================================================
+print("=" * 50)
+print("🔍 ENVIRONMENT DEĞİŞKENLERİ KONTROLÜ")
+print("=" * 50)
 
+# Tüm environment değişkenlerini listele (güvenlik için token'ları gizle)
+for key, value in os.environ.items():
+    if "TOKEN" in key or "KEY" in key:
+        if value:
+            print(f"✅ {key} = {value[:5]}...{value[-5:]} (gizli)")
+        else:
+            print(f"❌ {key} = BOŞ!")
+    else:
+        print(f"📌 {key} = {value}")
+
+print("=" * 50)
+
+# Gemini API key'ini özel kontrol et
+gemini_key = os.getenv('GEMINI_API_KEY')
+if gemini_key:
+    print(f"✅ GEMINI_API_KEY bulundu: {gemini_key[:5]}...{gemini_key[-5:]}")
+    print(f"📏 Uzunluk: {len(gemini_key)} karakter")
+else:
+    print("❌ GEMINI_API_KEY BULUNAMADI!")
+    print("📝 Railway'de Variables sekmesine GEMINI_API_KEY eklemeyi unutma!")
+
+print("=" * 50)
 # ======================================================================
 # 📦 GEREKLİ KÜTÜPHANELER
 # ======================================================================
