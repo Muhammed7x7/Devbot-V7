@@ -170,26 +170,50 @@ class DataManager:
 db = DataManager()
 
 # ======================================================================
-# 🤖 6. GEMINI İSTEMCİSİ (ÜCRETSİZ!)
+# ======================================================================
+# 🤖 6. GEMINI İSTEMCİSİ - DÜZELTİLMİŞ URL YAPISI
 # ======================================================================
 class GeminiClient:
     def __init__(self, api_key: str):
         self.api_key = api_key
         self.available = False
-        self.model = config.GEMINI_MODEL
-        self.api_url = f"{config.GEMINI_API_URL}?key={api_key}"
+        self.models_tested = []
         
-        if api_key:
+        # DOĞRU URL - /v1beta/ ile!
+        self.base_url = "https://generativelanguage.googleapis.com/v1beta"
+        
+        # Denenecek modeller (güncel)
+        self.models_to_try = [
+            "gemini-2.0-flash",      # En yeni model [citation:5]
+            "gemini-2.0-pro",         # Yeni pro model
+            "gemini-1.5-flash",       # Eski ama stabil
+            "gemini-1.5-pro",         # Eski pro model
+        ]
+        
+        print(f"\n🔍 Gemini API Başlatılıyor...")
+        print(f"📌 Base URL: {self.base_url}")
+        print(f"🔑 API Key: {'✅ VAR' if api_key else '❌ YOK'}")
+        
+        if not api_key:
+            print("❌ GEMINI_API_KEY bulunamadı!")
+            return
+        
+        # Tüm modelleri dene
+        import requests
+        
+        for model in self.models_to_try:
             try:
-                # Test isteği yap
+                test_url = f"{self.base_url}/models/{model}:generateContent?key={api_key}"
                 test_data = {
                     "contents": [{
                         "parts": [{"text": "Merhaba"}]
                     }]
                 }
                 
+                print(f"🔍 Test ediliyor: {model}")
+                
                 response = requests.post(
-                    self.api_url,
+                    test_url,
                     json=test_data,
                     timeout=5,
                     headers={"Content-Type": "application/json"}
@@ -197,22 +221,33 @@ class GeminiClient:
                 
                 if response.status_code == 200:
                     self.available = True
-                    logger.info("✅ Gemini API bağlantısı kuruldu (ÜCRETSİZ!)")
-                    logger.info(f"   • Model: {self.model}")
-                    logger.info(f"   • 60 istek/dakika")
+                    self.model = model
+                    self.api_url = f"{self.base_url}/models/{model}:generateContent?key={api_key}"
+                    print(f"✅ ÇALIŞAN MODEL BULUNDU: {model}")
+                    print(f"📌 API URL: {self.api_url}")
+                    break
                 else:
-                    logger.error(f"❌ Gemini test başarısız: {response.status_code}")
-                    logger.error(f"   {response.text}")
+                    print(f"❌ {model} başarısız: {response.status_code}")
+                    self.models_tested.append(f"{model}: {response.status_code}")
                     
             except Exception as e:
-                logger.error(f"❌ Gemini bağlantı hatası: {e}")
+                print(f"❌ {model} hatası: {e}")
+                self.models_tested.append(f"{model}: {str(e)[:50]}")
+        
+        if self.available:
+            logger.info(f"✅ Gemini API bağlantısı kuruldu - Model: {self.model}")
         else:
-            logger.warning("⚠️ GEMINI_API_KEY bulunamadı, Gemini özellikleri devre dışı")
+            logger.error("❌ Hiçbir model çalışmadı!")
+            logger.error(f"Test edilen modeller: {self.models_tested}")
     
     async def chat(self, message: str) -> str:
-        """Gemini ile sohbet et"""
+        """Gemini ile sohbet et - DÜZELTİLMİŞ URL"""
         if not self.available:
-            return "❌ Gemini API bağlantısı yok! Lütfen GEMINI_API_KEY ekleyin.\nhttps://aistudio.google.com/app/apikey"
+            models_list = "\n".join([f"   • {m}" for m in self.models_to_try])
+            return f"❌ Gemini API bağlantısı yok! Lütfen şunları kontrol edin:\n" \
+                   f"   1. GEMINI_API_KEY geçerli mi?\n" \
+                   f"   2. API anahtarı https://aistudio.google.com/app/apikeu adresinden alınmış mı?\n" \
+                   f"   3. Denenen modeller:\n{models_list}"
         
         try:
             data = {
@@ -238,8 +273,11 @@ class GeminiClient:
                 
                 try:
                     return result['candidates'][0]['content']['parts'][0]['text']
-                except (KeyError, IndexError):
-                    return f"Yanıt formatı beklenmedik: {result}"
+                except (KeyError, IndexError) as e:
+                    return f"Yanıt formatı hatası: {e}\n{result}"
+            
+            elif response.status_code == 404:
+                return f"❌ 404 Hatası: Model '{self.model}' bulunamadı. URL: {self.api_url}"
             else:
                 return f"API Hatası ({response.status_code}): {response.text[:200]}"
                 
