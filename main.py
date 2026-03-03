@@ -181,91 +181,105 @@ class DataManager:
 db = DataManager()
 
 # ======================================================================
+
 # ======================================================================
-# 🤖 6. GEMINI İSTEMCİSİ (ANA AI) - DÜZELTİLMİŞ
+# 🤖 6. GEMINI İSTEMCİSİ - DOĞRUDAN REST API
 # ======================================================================
 class GeminiClient:
     def __init__(self, api_key: str):
         self.api_key = api_key
-        self.model = None
-        self.pro_model = None
-        self.chat_sessions = {}
         self.available = False
+        self.base_url = "https://generativelanguage.googleapis.com/v1beta"  # /v1beta/ ile!
         
-        if api_key and GEMINI_AVAILABLE:
+        if api_key:
             try:
-                genai.configure(api_key=api_key)
+                # Sadece API key'i test et
+                import requests
+                test_url = f"{self.base_url}/models/gemini-pro:generateContent?key={api_key}"
+                test_data = {
+                    "contents": [{
+                        "parts": [{"text": "Merhaba"}]
+                    }]
+                }
                 
-                # MODELLERİ LİSTELE (debug için)
-                logger.info("📋 Mevcut modeller:")
-                for m in genai.list_models():
-                    if 'generateContent' in m.supported_generation_methods:
-                        logger.info(f"   • {m.name}")
-                
-                # EN STABİL MODELLER:
-                self.model = genai.GenerativeModel('gemini-pro')  # En stabil
-                self.pro_model = genai.GenerativeModel('gemini-pro')  # Aynısını kullan
-                
-                self.available = True
-                logger.info("✅ Gemini API bağlantısı kuruldu")
-                logger.info(f"   • Model: gemini-pro (stabil, ücretsiz)")
-                
+                response = requests.post(test_url, json=test_data, timeout=5)
+                if response.status_code == 200:
+                    self.available = True
+                    print(f"✅ Gemini API hazır: {self.base_url}")
+                else:
+                    print(f"⚠️ Gemini test başarısız: {response.status_code}")
+                    
             except Exception as e:
-                logger.error(f"❌ Gemini bağlantı hatası: {e}")
-        
-        elif not GEMINI_AVAILABLE:
-            logger.error("❌ google-generativeai kütüphanesi yok! pip install google-generativeai")
+                print(f"❌ Gemini bağlantı hatası: {e}")
     
     async def chat(self, message: str, user_id: int = None) -> str:
-        """Gemini ile sohbet et"""
+        """Gemini ile sohbet et - doğrudan REST API"""
         if not self.available:
-            return "⚠️ Gemini API bağlantısı yok! Lütfen GEMINI_API_KEY ekleyin."
+            return "⚠️ Gemini API bağlantısı yok!"
         
         try:
-            # Basit tek seferlik istek (chat session sorun çıkarırsa)
+            import requests
+            url = f"{self.base_url}/models/gemini-pro:generateContent?key={self.api_key}"
+            
+            data = {
+                "contents": [{
+                    "parts": [{"text": message}]
+                }]
+            }
+            
+            # Async olarak çalıştır
             loop = asyncio.get_event_loop()
             response = await loop.run_in_executor(
                 None,
-                lambda: self.model.generate_content(message)
+                lambda: requests.post(url, json=data, timeout=30)
             )
             
-            db.track_metric("gemini_calls")
-            return response.text
-            
+            if response.status_code == 200:
+                result = response.json()
+                return result['candidates'][0]['content']['parts'][0]['text']
+            else:
+                return f"API Hatası: {response.status_code} - {response.text}"
+                
         except Exception as e:
-            logger.error(f"❌ Gemini chat hatası: {e}")
-            return f"Üzgünüm, bir hata oluştu: {str(e)[:100]}"
+            return f"Bağlantı hatası: {str(e)}"
     
     async def generate_code(self, prompt: str, language: str = "python") -> str:
-        """Gemini ile kod üret"""
+        """Kod üret"""
         if not self.available:
-            return "# Gemini API bağlantısı yok!"
+            return "# API bağlantısı yok!"
         
         try:
-            full_prompt = f"""Write {language} code for the following request. 
-Only output the code, no explanations, no markdown formatting.
-Request: {prompt}"""
+            import requests
+            url = f"{self.base_url}/models/gemini-pro:generateContent?key={self.api_key}"
+            
+            full_prompt = f"Write {language} code for: {prompt}. Only output code, no explanations."
+            
+            data = {
+                "contents": [{
+                    "parts": [{"text": full_prompt}]
+                }]
+            }
             
             loop = asyncio.get_event_loop()
             response = await loop.run_in_executor(
                 None,
-                lambda: self.model.generate_content(full_prompt)
+                lambda: requests.post(url, json=data, timeout=30)
             )
             
-            db.track_metric("gemini_calls")
-            
-            # Kodu temizle
-            code = response.text
-            if code.startswith("```"):
-                code = code.split("```")[1]
-                if code.startswith(language):
-                    code = code[len(language):]
-                code = code.strip()
-            
-            return code
-            
+            if response.status_code == 200:
+                result = response.json()
+                code = result['candidates'][0]['content']['parts'][0]['text']
+                
+                # Markdown temizliği
+                if code.startswith("```"):
+                    lines = code.split('\n')
+                    if len(lines) > 2:
+                        code = '\n'.join(lines[1:-1])
+                return code
+            else:
+                return f"# Hata: {response.status_code}"
+                
         except Exception as e:
-            logger.error(f"❌ Gemini code hatası: {e}")
             return f"# Hata: {str(e)}"
 
 # ======================================================================
