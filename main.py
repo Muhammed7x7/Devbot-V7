@@ -181,7 +181,8 @@ class DataManager:
 db = DataManager()
 
 # ======================================================================
-# 🤖 6. GEMINI İSTEMCİSİ (ANA AI)
+# ======================================================================
+# 🤖 6. GEMINI İSTEMCİSİ (ANA AI) - DÜZELTİLMİŞ
 # ======================================================================
 class GeminiClient:
     def __init__(self, api_key: str):
@@ -194,14 +195,24 @@ class GeminiClient:
         if api_key and GEMINI_AVAILABLE:
             try:
                 genai.configure(api_key=api_key)
-                self.model = genai.GenerativeModel(config.GEMINI_MODEL)
-                self.pro_model = genai.GenerativeModel(config.GEMINI_PRO_MODEL)
+                
+                # MODELLERİ LİSTELE (debug için)
+                logger.info("📋 Mevcut modeller:")
+                for m in genai.list_models():
+                    if 'generateContent' in m.supported_generation_methods:
+                        logger.info(f"   • {m.name}")
+                
+                # EN STABİL MODELLER:
+                self.model = genai.GenerativeModel('gemini-pro')  # En stabil
+                self.pro_model = genai.GenerativeModel('gemini-pro')  # Aynısını kullan
+                
                 self.available = True
                 logger.info("✅ Gemini API bağlantısı kuruldu")
-                logger.info(f"   • Model: {config.GEMINI_MODEL} (60 istek/dk ÜCRETSİZ!)")
-                logger.info(f"   • Pro Model: {config.GEMINI_PRO_MODEL}")
+                logger.info(f"   • Model: gemini-pro (stabil, ücretsiz)")
+                
             except Exception as e:
                 logger.error(f"❌ Gemini bağlantı hatası: {e}")
+        
         elif not GEMINI_AVAILABLE:
             logger.error("❌ google-generativeai kütüphanesi yok! pip install google-generativeai")
     
@@ -211,18 +222,11 @@ class GeminiClient:
             return "⚠️ Gemini API bağlantısı yok! Lütfen GEMINI_API_KEY ekleyin."
         
         try:
-            # Kullanıcıya özel chat session
-            if user_id and user_id in self.chat_sessions:
-                chat = self.chat_sessions[user_id]
-            else:
-                chat = self.model.start_chat(history=[])
-                if user_id:
-                    self.chat_sessions[user_id] = chat
-            
+            # Basit tek seferlik istek (chat session sorun çıkarırsa)
             loop = asyncio.get_event_loop()
             response = await loop.run_in_executor(
                 None,
-                lambda: chat.send_message(message)
+                lambda: self.model.generate_content(message)
             )
             
             db.track_metric("gemini_calls")
@@ -263,34 +267,6 @@ Request: {prompt}"""
         except Exception as e:
             logger.error(f"❌ Gemini code hatası: {e}")
             return f"# Hata: {str(e)}"
-    
-    async def analyze_code(self, code: str, language: str = "python") -> str:
-        """Kodu analiz et, hata bul, optimize et"""
-        if not self.available:
-            return "Gemini API bağlantısı yok!"
-        
-        try:
-            full_prompt = f"""Analyze this {language} code and provide:
-1. Potential bugs or issues
-2. Performance improvements
-3. Best practices suggestions
-
-Code:
-```{language}
-{code}
-```"""
-            
-            loop = asyncio.get_event_loop()
-            response = await loop.run_in_executor(
-                None,
-                lambda: self.pro_model.generate_content(full_prompt)
-            )
-            
-            db.track_metric("gemini_calls")
-            return response.text
-            
-        except Exception as e:
-            return f"Analiz hatası: {str(e)}"
 
 # ======================================================================
 # 🎨 7. OPENAI İSTEMCİSİ (SADECE GÖRSEL İÇİN)
