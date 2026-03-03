@@ -4,7 +4,7 @@
 """
 ╔══════════════════════════════════════════════════════════════════════════════╗
 ║                    🚀 GEMINI-POWERED DISCORD BOT 🚀                          ║
-║                         (RAILWAY EDITION - main.py)                          ║
+║                         (RAILWAY EDITION - DEBUG EKLİ)                       ║
 ╠══════════════════════════════════════════════════════════════════════════════╣
 ║  • Tamamen ÜCRETSİZ Gemini AI                                                ║
 ║  • 60 istek/dakika - Hiçbir ücret yok!                                      ║
@@ -12,50 +12,77 @@
 ║  • Slash: /gemini, /kod, /durum, /menü                                      ║
 ║  • Railway + Health Check + Otomatik yeniden başlatma                       ║
 ║  • Hafıza: Son 50 mesajı hatırlar                                           ║
-║  • Owner: sadece belirlenen kişiler kullanabilir                            ║
+║  • DEBUG: Environment değişkenleri loglanır                                 ║
 ╚══════════════════════════════════════════════════════════════════════════════╝
 """
+
 # ======================================================================
-# 🔍 DEBUG - ENVIRONMENT KONTROL
+# 🔍 DEBUG - ENVIRONMENT KONTROL (EN ÜSTE OLMALI)
 # ======================================================================
-print("=" * 50)
-print("🔍 ENVIRONMENT DEĞİŞKENLERİ KONTROLÜ")
-print("=" * 50)
+import os
+import sys
+
+print("=" * 60)
+print("🔍 RAILWAY ENVIRONMENT DEBUG")
+print("=" * 60)
 
 # Tüm environment değişkenlerini listele (güvenlik için token'ları gizle)
-for key, value in os.environ.items():
-    if "TOKEN" in key or "KEY" in key:
+for key, value in sorted(os.environ.items()):
+    if "TOKEN" in key.upper() or "KEY" in key.upper():
         if value:
-            print(f"✅ {key} = {value[:5]}...{value[-5:]} (gizli)")
+            gizli = f"{value[:5]}...{value[-5:]}" if len(value) > 10 else "***"
+            print(f"✅ {key} = {gizli} (gizli, uzunluk: {len(value)})")
         else:
             print(f"❌ {key} = BOŞ!")
     else:
         print(f"📌 {key} = {value}")
 
-print("=" * 50)
+print("=" * 60)
 
 # Gemini API key'ini özel kontrol et
 gemini_key = os.getenv('GEMINI_API_KEY')
 if gemini_key:
     print(f"✅ GEMINI_API_KEY bulundu: {gemini_key[:5]}...{gemini_key[-5:]}")
-    print(f"📏 Uzunluk: {len(gemini_key)} karakter")
+    print(f"📏 Uzunluk: {len(gemini_key)} karakter (39 olmalı)")
+    
+    # API key formatını kontrol et
+    if gemini_key.startswith('AIza'):
+        print("✅ API key formatı doğru (AIza ile başlıyor)")
+    else:
+        print("❌ API key formatı yanlış! AIza ile başlamalı")
 else:
     print("❌ GEMINI_API_KEY BULUNAMADI!")
     print("📝 Railway'de Variables sekmesine GEMINI_API_KEY eklemeyi unutma!")
 
-print("=" * 50)
+# Discord token kontrolü
+discord_token = os.getenv('DISCORD_TOKEN')
+if discord_token:
+    print(f"✅ DISCORD_TOKEN bulundu: {discord_token[:5]}...{discord_token[-5:]}")
+    print(f"📏 Uzunluk: {len(discord_token)} karakter")
+else:
+    print("❌ DISCORD_TOKEN BULUNAMADI!")
+
+# Owner ID kontrolü
+owner_ids = os.getenv('OWNER_IDS')
+if owner_ids:
+    print(f"✅ OWNER_IDS bulundu: {owner_ids}")
+else:
+    print("⚠️ OWNER_IDS bulunamadı, sadece ana owner çalışacak")
+
+print("=" * 60)
+print("🚀 Bot başlatılıyor...")
+print("=" * 60)
+
 # ======================================================================
 # 📦 GEREKLİ KÜTÜPHANELER
 # ======================================================================
-import os
-import sys
 import asyncio
 import logging
 import json
 import time
 from datetime import datetime
 from pathlib import Path
-from typing import Optional, Dict, List, Any
+from typing import Any, Optional
 
 import discord
 from discord import app_commands
@@ -98,8 +125,8 @@ class Config:
         self.GEMINI_API_URL = "https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent"
         
         # Sistem ayarları
-        self.HEALTH_CHECK_INTERVAL = 60  # saniye
-        self.MEMORY_LIMIT = 50  # kullanıcı başına maksimum mesaj
+        self.HEALTH_CHECK_INTERVAL = 60
+        self.MEMORY_LIMIT = 50
 
 config = Config()
 
@@ -159,7 +186,6 @@ class DataManager:
         self._save_json(self.stats_file, self.stats)
     
     def add_to_memory(self, user_id: int, role: str, content: str):
-        """Kullanıcı mesajlarını hafızada tut"""
         uid = str(user_id)
         if uid not in self.memory:
             self.memory[uid] = []
@@ -171,7 +197,6 @@ class DataManager:
             "time": time.time()
         })
         
-        # Hafıza limiti
         if len(self.memory[uid]) > config.MEMORY_LIMIT:
             self.memory[uid] = self.memory[uid][-config.MEMORY_LIMIT:]
         
@@ -188,7 +213,7 @@ class DataManager:
 db = DataManager()
 
 # ======================================================================
-# 🤖 GEMINI İSTEMCİSİ
+# 🤖 GEMINI İSTEMCİSİ (DEBUG EKLİ)
 # ======================================================================
 class GeminiClient:
     def __init__(self, api_key: str):
@@ -197,54 +222,95 @@ class GeminiClient:
         self.model = config.GEMINI_MODEL
         self.api_url = f"{config.GEMINI_API_URL}?key={api_key}"
         
+        logger.info("🤖 Gemini istemcisi başlatılıyor...")
+        
         if api_key:
             self._test_connection()
         else:
-            logger.warning("⚠️ GEMINI_API_KEY bulunamadı!")
+            logger.error("❌ GEMINI_API_KEY boş! Lütfen Railway'de GEMINI_API_KEY değişkenini ekleyin.")
     
     def _test_connection(self):
-        """API bağlantısını test et"""
+        """API bağlantısını test et - DETAYLI DEBUG"""
+        logger.info("🔄 Gemini API bağlantısı test ediliyor...")
+        
         try:
+            # API key'in uzunluğunu kontrol et
+            logger.info(f"🔑 API Key uzunluğu: {len(self.api_key)} karakter")
+            logger.info(f"🔑 API Key formatı: {self.api_key[:5]}...{self.api_key[-5:]}")
+            
+            # Test mesajı
             test_data = {
                 "contents": [{
-                    "parts": [{"text": "Merhaba"}]
+                    "parts": [{"text": "Merhaba, test mesajı. Sadece 'Evet' yaz."}]
                 }]
             }
+            
+            logger.info(f"📡 API URL: {self.api_url[:50]}...")
+            logger.info("📤 Test isteği gönderiliyor...")
             
             response = requests.post(
                 self.api_url,
                 json=test_data,
-                timeout=5,
+                timeout=15,
                 headers={"Content-Type": "application/json"}
             )
             
+            logger.info(f"📥 Status Code: {response.status_code}")
+            
             if response.status_code == 200:
                 self.available = True
-                logger.info("✅ Gemini API bağlantısı başarılı!")
+                logger.info("✅ Gemini API bağlantısı BAŞARILI!")
                 logger.info(f"   • Model: {self.model}")
                 logger.info(f"   • Limit: 60 istek/dakika (ÜCRETSİZ!)")
-            else:
-                logger.error(f"❌ Gemini API hatası: {response.status_code}")
                 
+                # Response'u logla
+                try:
+                    result = response.json()
+                    if 'candidates' in result:
+                        logger.info("✅ API yanıt formatı doğru")
+                except:
+                    pass
+                    
+            else:
+                logger.error(f"❌ Gemini API hatası! Status: {response.status_code}")
+                logger.error(f"📄 Response: {response.text[:500]}")
+                
+                # Hata kodlarına göre özel mesajlar
+                if response.status_code == 403:
+                    logger.error("🚫 403 Hatası: API key geçersiz veya yetkisiz!")
+                    logger.error("   • API key'in doğru olduğundan emin ol")
+                    logger.error("   • Yeni bir API key almayı dene")
+                elif response.status_code == 429:
+                    logger.error("⏳ 429 Hatası: Çok fazla istek! (Rate limit)")
+                    logger.error("   • 60 saniye bekle ve tekrar dene")
+                elif response.status_code == 400:
+                    logger.error("❌ 400 Hatası: İstek formatı yanlış")
+                
+        except requests.exceptions.Timeout:
+            logger.error("❌ Gemini API timeout! (15 saniye)")
+            logger.error("   • Bağlantı yavaş, tekrar dene")
+        except requests.exceptions.ConnectionError:
+            logger.error("❌ Gemini API bağlantı hatası!")
+            logger.error("   • İnternet bağlantını kontrol et")
+            logger.error("   • VPN kullanıyorsan kapat")
         except Exception as e:
-            logger.error(f"❌ Gemini bağlantı hatası: {e}")
+            logger.error(f"❌ Gemini bağlantı hatası: {str(e)}")
+            logger.error(f"   • Hata tipi: {type(e).__name__}")
     
     async def chat(self, message: str, context: list = None) -> str:
         """Gemini ile sohbet et"""
         if not self.available:
-            return "❌ Gemini API bağlantısı yok! Lütfen GEMINI_API_KEY ekleyin."
+            return "❌ Gemini API bağlantısı yok! Lütfen GEMINI_API_KEY ekleyin.\nhttps://aistudio.google.com/app/apikey"
         
         try:
-            # Context varsa ekle
             contents = []
             
             if context:
-                for msg in context[-5:]:  # Son 5 mesajı al
+                for msg in context[-5:]:
                     contents.append({
                         "parts": [{"text": msg['content']}]
                     })
             
-            # Yeni mesajı ekle
             contents.append({
                 "parts": [{"text": message}]
             })
@@ -324,7 +390,6 @@ Requirements:
                 try:
                     code = result['candidates'][0]['content']['parts'][0]['text']
                     
-                    # Markdown temizliği
                     if code.startswith("```"):
                         lines = code.split('\n')
                         if len(lines) > 2:
@@ -355,10 +420,15 @@ class GeminiBot(commands.Bot):
         self.owner_ids = config.OWNER_IDS
         self.last_heartbeat = time.time()
         
+        # Durum özeti
+        logger.info("=" * 50)
+        logger.info("🤖 BOT DURUM ÖZETİ")
+        logger.info("=" * 50)
         logger.info(f"🤖 Gemini: {'✅ AKTİF' if self.gemini.available else '❌ PASIF'}")
+        logger.info(f"👤 Owner ID'ler: {self.owner_ids if self.owner_ids else 'YOK (varsayılan owner kullanılacak)'}")
+        logger.info("=" * 50)
     
     async def setup_hook(self):
-        """Bot başlangıcında çalışır"""
         try:
             await self.tree.sync()
             logger.info(f"✅ {len(self.tree.get_commands())} slash komut yüklendi")
@@ -391,8 +461,6 @@ class GeminiBot(commands.Bot):
             await ctx.send(f"❌ Hata: {str(error)[:100]}")
     
     def is_owner(self, user_id: int) -> bool:
-        """Kullanıcı bot sahibi mi?"""
-        # Ana owner ID'yi otomatik ekle
         main_owner = 1298163612189597716
         return user_id in self.owner_ids or user_id == main_owner
 
@@ -451,12 +519,17 @@ async def test(ctx):
         timestamp=datetime.now()
     )
     
+    gemini_durum = "✅ Aktif" if bot.gemini.available else "❌ Pasif"
+    
     embed.add_field(name="📊 Ping", value=f"{round(bot.latency * 1000)}ms", inline=True)
     embed.add_field(name="🌐 Sunucular", value=len(bot.guilds), inline=True)
     embed.add_field(name="👥 Kullanıcılar", value=len(bot.users), inline=True)
-    embed.add_field(name="🤖 Gemini", value="✅ Aktif" if bot.gemini.available else "❌ Pasif", inline=True)
+    embed.add_field(name="🤖 Gemini", value=gemini_durum, inline=True)
     embed.add_field(name="💬 Toplam Mesaj", value=db.stats.get("total_messages", 0), inline=True)
     embed.add_field(name="📊 API Kullanım", value=f"{db.stats.get('gemini_calls', 0)} istek", inline=True)
+    
+    if not bot.gemini.available:
+        embed.add_field(name="⚠️ Gemini Hatası", value="API anahtarı kontrol ediliyor...", inline=False)
     
     await ctx.send(embed=embed)
     db.track_command("test")
@@ -491,7 +564,8 @@ async def help_command(ctx):
         inline=False
     )
     
-    embed.set_footer(text=f"{bot.user.name} • Gemini AI ile güçlendirildi")
+    gemini_durum = "✅ Aktif" if bot.gemini.available else "❌ Pasif (API anahtarı gerekli!)"
+    embed.set_footer(text=f"{bot.user.name} • Gemini: {gemini_durum}")
     
     await ctx.send(embed=embed)
     db.track_command("help")
@@ -506,21 +580,16 @@ async def gemini_command(ctx, *, mesaj: str):
     async with ctx.typing():
         try:
             if not bot.gemini.available:
-                await ctx.send("❌ Gemini API bağlantısı yok!")
+                await ctx.send("❌ Gemini API bağlantısı yok! Lütfen GEMINI_API_KEY ekleyin.")
                 return
             
-            # Hafızayı al
             memory = db.get_memory(ctx.author.id)
-            
-            # Gemini'ye sor
             response = await bot.gemini.chat(mesaj, memory)
             
-            # Hafızaya kaydet
             db.add_to_memory(ctx.author.id, "user", mesaj)
             db.add_to_memory(ctx.author.id, "assistant", response[:500])
             db.track_command("gemini")
             
-            # Uzun mesajları böl
             if len(response) > 1900:
                 for i in range(0, len(response), 1900):
                     await ctx.send(response[i:i+1900])
@@ -543,16 +612,13 @@ async def kod_command(ctx, dil: str = "python", *, aciklama: str):
                 await ctx.send("❌ Gemini API bağlantısı yok!")
                 return
             
-            # Kodu oluştur
             code = await bot.gemini.generate_code(aciklama, dil)
             db.track_command("kod")
             
-            # Dosyaya kaydet
             filename = f"kod_{int(time.time())}.{dil}"
             filepath = config.WORKSPACE_DIR / filename
             filepath.write_text(code, encoding='utf-8')
             
-            # Embed oluştur
             embed = Embed(
                 title=f"💻 {dil.capitalize()} Kodu",
                 description=f"**İstek:** {aciklama[:200]}",
@@ -596,7 +662,7 @@ async def gemini_slash(interaction: discord.Interaction, mesaj: str):
     
     try:
         if not bot.gemini.available:
-            await interaction.followup.send("❌ Gemini API bağlantısı yok!")
+            await interaction.followup.send("❌ Gemini API bağlantısı yok! Lütfen GEMINI_API_KEY ekleyin.")
             return
         
         memory = db.get_memory(interaction.user.id)
@@ -675,12 +741,17 @@ async def durum_slash(interaction: discord.Interaction):
         timestamp=datetime.now()
     )
     
+    gemini_durum = "✅ Aktif" if bot.gemini.available else "❌ Pasif"
+    
     embed.add_field(name="⏰ Çalışma Süresi", value=f"{saat}s {dakika}d", inline=True)
     embed.add_field(name="📊 Ping", value=f"{round(bot.latency * 1000)}ms", inline=True)
     embed.add_field(name="🌐 Sunucular", value=len(bot.guilds), inline=True)
     embed.add_field(name="👥 Kullanıcılar", value=len(bot.users), inline=True)
-    embed.add_field(name="🤖 Gemini", value="✅ Aktif" if bot.gemini.available else "❌ Pasif", inline=True)
+    embed.add_field(name="🤖 Gemini", value=gemini_durum, inline=True)
     embed.add_field(name="📊 API Kullanım", value=f"{db.stats.get('gemini_calls', 0)} istek", inline=True)
+    
+    if not bot.gemini.available:
+        embed.add_field(name="⚠️ Gemini Hatası", value="API anahtarı kontrol ediliyor...", inline=False)
     
     await interaction.response.send_message(embed=embed)
     db.track_command("slash_durum")
@@ -807,10 +878,10 @@ async def watchdog():
         try:
             heartbeat_age = time.time() - bot.last_heartbeat
             
-            if heartbeat_age > 300:  # 5 dakika
+            if heartbeat_age > 300:
                 logger.warning(f"⚠️ Heartbeat yaşlı: {heartbeat_age:.0f}s")
             
-            if heartbeat_age > 900:  # 15 dakika
+            if heartbeat_age > 900:
                 logger.error("❌ Bot yanıt vermiyor, yeniden başlatılıyor...")
                 os._exit(1)
                 
@@ -832,7 +903,8 @@ async def main():
 ║   ✅ Health Check: Her zaman 200 döndürür                   ║
 ║   ✅ Watchdog: Otomatik yeniden başlatma                    ║
 ║   ✅ Hafıza: Son 50 mesajı hatırlar                         ║
-║   ✅ Owner Kontrolü: Sadece yetkililer kullanabilir         ║
+║   ✅ DEBUG: Environment logları gösterilir                  ║
+║   ✅ Owner: Sadece yetkililer kullanabilir                  ║
 ║   ✅ ekincimhuseyn                                         ║
 ║                                                              ║
 ╚══════════════════════════════════════════════════════════════╝
@@ -845,7 +917,6 @@ async def main():
     
     if not config.GEMINI_API_KEY:
         logger.warning("⚠️ GEMINI_API_KEY bulunamadı! Bot çalışmayacak.")
-        return
     
     # Servisleri başlat
     asyncio.create_task(health_check())
@@ -855,6 +926,11 @@ async def main():
     
     try:
         await bot.start(config.DISCORD_TOKEN)
+    except discord.PrivilegedIntentsRequired:
+        logger.error("❌ INTENT HATASI! Discord Developer Portal'da intent'leri aç:")
+        logger.error("   1. https://discord.com/developers/applications")
+        logger.error("   2. Bot'unu seç → Bot sekmesi")
+        logger.error("   3. Tüm Intent'leri AÇ → Save Changes")
     except Exception as e:
         logger.error(f"❌ Kritik hata: {e}")
     finally:
