@@ -3,86 +3,31 @@
 
 """
 ╔══════════════════════════════════════════════════════════════════════════════╗
-║                    🚀 GEMINI-POWERED DISCORD BOT 🚀                          ║
-║                         (RAILWAY EDITION - DEBUG EKLİ)                       ║
+║                    🚀 DEEPSEEK-POWERED DISCORD BOT 🚀                       ║
+║                         (RAILWAY EDITION - main.py)                          ║
 ╠══════════════════════════════════════════════════════════════════════════════╣
-║  • Tamamen ÜCRETSİZ Gemini AI                                                ║
-║  • 60 istek/dakika - Hiçbir ücret yok!                                      ║
-║  • Prefix: !ping, !test, !gemini, !kod, !temizle                            ║
-║  • Slash: /gemini, /kod, /durum, /menü                                      ║
+║  • DeepSeek AI - GÜÇLÜ ve HIZLI!                                            ║
+║  • Tamamen ÜCRETSİZ (1M token context)                                      ║
+║  • Prefix: !ping, !test, !deepseek, !kod, !sohbet                           ║
+║  • Slash: /deepseek, /kod, /durum, /menü                                    ║
 ║  • Railway + Health Check + Otomatik yeniden başlatma                       ║
 ║  • Hafıza: Son 50 mesajı hatırlar                                           ║
-║  • DEBUG: Environment değişkenleri loglanır                                 ║
+║  • Owner: sadece belirlenen kişiler kullanabilir                            ║
 ╚══════════════════════════════════════════════════════════════════════════════╝
 """
 
 # ======================================================================
-# 🔍 DEBUG - ENVIRONMENT KONTROL (EN ÜSTE OLMALI)
+# 📦 GEREKLİ KÜTÜPHANELER
 # ======================================================================
 import os
 import sys
-
-print("=" * 60)
-print("🔍 RAILWAY ENVIRONMENT DEBUG")
-print("=" * 60)
-
-# Tüm environment değişkenlerini listele (güvenlik için token'ları gizle)
-for key, value in sorted(os.environ.items()):
-    if "TOKEN" in key.upper() or "KEY" in key.upper():
-        if value:
-            gizli = f"{value[:5]}...{value[-5:]}" if len(value) > 10 else "***"
-            print(f"✅ {key} = {gizli} (gizli, uzunluk: {len(value)})")
-        else:
-            print(f"❌ {key} = BOŞ!")
-    else:
-        print(f"📌 {key} = {value}")
-
-print("=" * 60)
-
-# Gemini API key'ini özel kontrol et
-gemini_key = os.getenv('GEMINI_API_KEY')
-if gemini_key:
-    print(f"✅ GEMINI_API_KEY bulundu: {gemini_key[:5]}...{gemini_key[-5:]}")
-    print(f"📏 Uzunluk: {len(gemini_key)} karakter (39 olmalı)")
-    
-    # API key formatını kontrol et
-    if gemini_key.startswith('AIza'):
-        print("✅ API key formatı doğru (AIza ile başlıyor)")
-    else:
-        print("❌ API key formatı yanlış! AIza ile başlamalı")
-else:
-    print("❌ GEMINI_API_KEY BULUNAMADI!")
-    print("📝 Railway'de Variables sekmesine GEMINI_API_KEY eklemeyi unutma!")
-
-# Discord token kontrolü
-discord_token = os.getenv('DISCORD_TOKEN')
-if discord_token:
-    print(f"✅ DISCORD_TOKEN bulundu: {discord_token[:5]}...{discord_token[-5:]}")
-    print(f"📏 Uzunluk: {len(discord_token)} karakter")
-else:
-    print("❌ DISCORD_TOKEN BULUNAMADI!")
-
-# Owner ID kontrolü
-owner_ids = os.getenv('OWNER_IDS')
-if owner_ids:
-    print(f"✅ OWNER_IDS bulundu: {owner_ids}")
-else:
-    print("⚠️ OWNER_IDS bulunamadı, sadece ana owner çalışacak")
-
-print("=" * 60)
-print("🚀 Bot başlatılıyor...")
-print("=" * 60)
-
-# ======================================================================
-# 📦 GEREKLİ KÜTÜPHANELER
-# ======================================================================
 import asyncio
 import logging
 import json
 import time
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Optional
+from typing import Optional, Dict, List, Any
 
 import discord
 from discord import app_commands
@@ -106,7 +51,7 @@ BASE_DIR = "/tmp" if RAILWAY_ENV else "."
 class Config:
     def __init__(self):
         self.DISCORD_TOKEN = os.getenv('DISCORD_TOKEN', '')
-        self.GEMINI_API_KEY = os.getenv('GEMINI_API_KEY', '')
+        self.DEEPSEEK_API_KEY = os.getenv('DEEPSEEK_API_KEY', '')
         
         # Owner ID'ler (virgülle ayır: 123456789,987654321)
         owner_ids = os.getenv('OWNER_IDS', '')
@@ -120,13 +65,13 @@ class Config:
         for dir_path in [self.WORKSPACE_DIR, self.DATA_DIR, self.LOGS_DIR]:
             dir_path.mkdir(parents=True, exist_ok=True)
         
-        # Gemini ayarları
-        self.GEMINI_MODEL = "gemini-pro"
-        self.GEMINI_API_URL = "https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent"
+        # DeepSeek ayarları
+        self.DEEPSEEK_API_URL = "https://api.deepseek.com/v1/chat/completions"
+        self.DEEPSEEK_MODEL = "deepseek-chat"  # veya "deepseek-coder"
         
         # Sistem ayarları
-        self.HEALTH_CHECK_INTERVAL = 60
-        self.MEMORY_LIMIT = 50
+        self.HEALTH_CHECK_INTERVAL = 60  # saniye
+        self.MEMORY_LIMIT = 50  # kullanıcı başına maksimum mesaj
 
 config = Config()
 
@@ -141,7 +86,7 @@ logging.basicConfig(
         logging.StreamHandler(sys.stdout)
     ]
 )
-logger = logging.getLogger("GeminiBot")
+logger = logging.getLogger("DeepSeekBot")
 
 # ======================================================================
 # 📁 VERİ YÖNETİCİSİ
@@ -158,7 +103,7 @@ class DataManager:
             "start_time": datetime.now().isoformat(),
             "restarts": 0,
             "commands": {},
-            "gemini_calls": 0,
+            "deepseek_calls": 0,
             "total_users": 0,
             "total_messages": 0
         }
@@ -181,11 +126,12 @@ class DataManager:
         self.stats["total_messages"] = self.stats.get("total_messages", 0) + 1
         self._save_json(self.stats_file, self.stats)
     
-    def track_gemini(self):
-        self.stats["gemini_calls"] = self.stats.get("gemini_calls", 0) + 1
+    def track_deepseek(self):
+        self.stats["deepseek_calls"] = self.stats.get("deepseek_calls", 0) + 1
         self._save_json(self.stats_file, self.stats)
     
     def add_to_memory(self, user_id: int, role: str, content: str):
+        """Kullanıcı mesajlarını hafızada tut"""
         uid = str(user_id)
         if uid not in self.memory:
             self.memory[uid] = []
@@ -197,6 +143,7 @@ class DataManager:
             "time": time.time()
         })
         
+        # Hafıza limiti
         if len(self.memory[uid]) > config.MEMORY_LIMIT:
             self.memory[uid] = self.memory[uid][-config.MEMORY_LIMIT:]
         
@@ -213,114 +160,90 @@ class DataManager:
 db = DataManager()
 
 # ======================================================================
-# 🤖 GEMINI İSTEMCİSİ (DEBUG EKLİ)
+# 🤖 DEEPSEEK İSTEMCİSİ
 # ======================================================================
-class GeminiClient:
+class DeepSeekClient:
     def __init__(self, api_key: str):
         self.api_key = api_key
         self.available = False
-        self.model = config.GEMINI_MODEL
-        self.api_url = f"{config.GEMINI_API_URL}?key={api_key}"
-        
-        logger.info("🤖 Gemini istemcisi başlatılıyor...")
+        self.model = config.DEEPSEEK_MODEL
+        self.api_url = config.DEEPSEEK_API_URL
         
         if api_key:
             self._test_connection()
         else:
-            logger.error("❌ GEMINI_API_KEY boş! Lütfen Railway'de GEMINI_API_KEY değişkenini ekleyin.")
+            logger.warning("⚠️ DEEPSEEK_API_KEY bulunamadı!")
     
     def _test_connection(self):
-        """API bağlantısını test et - DETAYLI DEBUG"""
-        logger.info("🔄 Gemini API bağlantısı test ediliyor...")
-        
+        """API bağlantısını test et"""
         try:
-            # API key'in uzunluğunu kontrol et
-            logger.info(f"🔑 API Key uzunluğu: {len(self.api_key)} karakter")
-            logger.info(f"🔑 API Key formatı: {self.api_key[:5]}...{self.api_key[-5:]}")
-            
-            # Test mesajı
-            test_data = {
-                "contents": [{
-                    "parts": [{"text": "Merhaba, test mesajı. Sadece 'Evet' yaz."}]
-                }]
+            headers = {
+                "Authorization": f"Bearer {self.api_key}",
+                "Content-Type": "application/json"
             }
             
-            logger.info(f"📡 API URL: {self.api_url[:50]}...")
-            logger.info("📤 Test isteği gönderiliyor...")
+            test_data = {
+                "model": self.model,
+                "messages": [{"role": "user", "content": "Merhaba"}],
+                "max_tokens": 10
+            }
             
             response = requests.post(
                 self.api_url,
                 json=test_data,
-                timeout=15,
-                headers={"Content-Type": "application/json"}
+                headers=headers,
+                timeout=5
             )
-            
-            logger.info(f"📥 Status Code: {response.status_code}")
             
             if response.status_code == 200:
                 self.available = True
-                logger.info("✅ Gemini API bağlantısı BAŞARILI!")
+                logger.info("✅ DeepSeek API bağlantısı başarılı!")
                 logger.info(f"   • Model: {self.model}")
-                logger.info(f"   • Limit: 60 istek/dakika (ÜCRETSİZ!)")
-                
-                # Response'u logla
-                try:
-                    result = response.json()
-                    if 'candidates' in result:
-                        logger.info("✅ API yanıt formatı doğru")
-                except:
-                    pass
-                    
+                logger.info(f"   • Context: 1M token (ÜCRETSİZ!)")
             else:
-                logger.error(f"❌ Gemini API hatası! Status: {response.status_code}")
-                logger.error(f"📄 Response: {response.text[:500]}")
+                logger.error(f"❌ DeepSeek API hatası: {response.status_code}")
+                logger.error(f"   {response.text}")
                 
-                # Hata kodlarına göre özel mesajlar
-                if response.status_code == 403:
-                    logger.error("🚫 403 Hatası: API key geçersiz veya yetkisiz!")
-                    logger.error("   • API key'in doğru olduğundan emin ol")
-                    logger.error("   • Yeni bir API key almayı dene")
-                elif response.status_code == 429:
-                    logger.error("⏳ 429 Hatası: Çok fazla istek! (Rate limit)")
-                    logger.error("   • 60 saniye bekle ve tekrar dene")
-                elif response.status_code == 400:
-                    logger.error("❌ 400 Hatası: İstek formatı yanlış")
-                
-        except requests.exceptions.Timeout:
-            logger.error("❌ Gemini API timeout! (15 saniye)")
-            logger.error("   • Bağlantı yavaş, tekrar dene")
-        except requests.exceptions.ConnectionError:
-            logger.error("❌ Gemini API bağlantı hatası!")
-            logger.error("   • İnternet bağlantını kontrol et")
-            logger.error("   • VPN kullanıyorsan kapat")
         except Exception as e:
-            logger.error(f"❌ Gemini bağlantı hatası: {str(e)}")
-            logger.error(f"   • Hata tipi: {type(e).__name__}")
+            logger.error(f"❌ DeepSeek bağlantı hatası: {e}")
     
-    async def chat(self, message: str, context: list = None) -> str:
-        """Gemini ile sohbet et"""
+    async def chat(self, message: str, context: list = None, system_prompt: str = None) -> str:
+        """DeepSeek ile sohbet et"""
         if not self.available:
-            return "❌ Gemini API bağlantısı yok! Lütfen GEMINI_API_KEY ekleyin.\nhttps://aistudio.google.com/app/apikey"
+            return "❌ DeepSeek API bağlantısı yok! Lütfen DEEPSEEK_API_KEY ekleyin."
         
         try:
-            contents = []
+            # Mesajları hazırla
+            messages = []
             
+            # Sistem promptu
+            if system_prompt:
+                messages.append({"role": "system", "content": system_prompt})
+            else:
+                messages.append({"role": "system", "content": "Sen yardımsever bir AI asistanısın. Türkçe yanıt ver."})
+            
+            # Context varsa ekle
             if context:
-                for msg in context[-5:]:
-                    contents.append({
-                        "parts": [{"text": msg['content']}]
-                    })
+                for msg in context[-10:]:  # Son 10 mesajı al
+                    role = "assistant" if msg['role'] == 'assistant' else "user"
+                    messages.append({"role": role, "content": msg['content']})
             
-            contents.append({
-                "parts": [{"text": message}]
-            })
+            # Yeni mesajı ekle
+            messages.append({"role": "user", "content": message})
+            
+            headers = {
+                "Authorization": f"Bearer {self.api_key}",
+                "Content-Type": "application/json"
+            }
             
             data = {
-                "contents": contents,
-                "generationConfig": {
-                    "temperature": 0.9,
-                    "maxOutputTokens": 2048
-                }
+                "model": self.model,
+                "messages": messages,
+                "temperature": 0.7,
+                "max_tokens": 4000,
+                "top_p": 0.9,
+                "frequency_penalty": 0,
+                "presence_penalty": 0
             }
             
             loop = asyncio.get_event_loop()
@@ -329,47 +252,52 @@ class GeminiClient:
                 lambda: requests.post(
                     self.api_url,
                     json=data,
-                    timeout=30,
-                    headers={"Content-Type": "application/json"}
+                    headers=headers,
+                    timeout=60
                 )
             )
             
             if response.status_code == 200:
                 result = response.json()
-                db.track_gemini()
+                db.track_deepseek()
                 
                 try:
-                    return result['candidates'][0]['content']['parts'][0]['text']
+                    return result['choices'][0]['message']['content']
                 except (KeyError, IndexError) as e:
                     return f"❌ Yanıt formatı hatası: {str(e)}"
             else:
-                return f"❌ API Hatası ({response.status_code})"
+                error_msg = response.json() if response.text else "Bilinmeyen hata"
+                return f"❌ API Hatası ({response.status_code}): {error_msg}"
                 
         except Exception as e:
             return f"❌ Bağlantı hatası: {str(e)}"
     
     async def generate_code(self, prompt: str, language: str = "python") -> str:
-        """Kod oluştur"""
+        """Kod oluştur - DeepSeek Coder özelliği"""
         if not self.available:
-            return "# Gemini API bağlantısı yok!"
+            return "# DeepSeek API bağlantısı yok!"
         
         try:
-            full_prompt = f"""Write {language} code for: {prompt}
+            system_prompt = f"""Sen bir kod uzmanısın. Sadece {language} kodu yaz, açıklama ekleme.
+Kodlar çalışır durumda ve hata ayıklanmış olmalı.
+Türkçe yorum satırları ekle."""
+
+            messages = [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": f"{prompt}\n\nKod:"}
+            ]
             
-Requirements:
-- Only output the code, no explanations
-- No markdown formatting
-- Include comments in Turkish
-- Make it production-ready"""
+            headers = {
+                "Authorization": f"Bearer {self.api_key}",
+                "Content-Type": "application/json"
+            }
             
             data = {
-                "contents": [{
-                    "parts": [{"text": full_prompt}]
-                }],
-                "generationConfig": {
-                    "temperature": 0.7,
-                    "maxOutputTokens": 4096
-                }
+                "model": "deepseek-coder",  # Kod için özel model
+                "messages": messages,
+                "temperature": 0.3,  # Daha deterministik
+                "max_tokens": 8000,
+                "top_p": 0.95
             }
             
             loop = asyncio.get_event_loop()
@@ -378,18 +306,19 @@ Requirements:
                 lambda: requests.post(
                     self.api_url,
                     json=data,
-                    timeout=30,
-                    headers={"Content-Type": "application/json"}
+                    headers=headers,
+                    timeout=60
                 )
             )
             
             if response.status_code == 200:
                 result = response.json()
-                db.track_gemini()
+                db.track_deepseek()
                 
                 try:
-                    code = result['candidates'][0]['content']['parts'][0]['text']
+                    code = result['choices'][0]['message']['content']
                     
+                    # Markdown temizliği
                     if code.startswith("```"):
                         lines = code.split('\n')
                         if len(lines) > 2:
@@ -407,7 +336,7 @@ Requirements:
 # ======================================================================
 # 🤖 DİSCORD BOT
 # ======================================================================
-class GeminiBot(commands.Bot):
+class DeepSeekBot(commands.Bot):
     def __init__(self):
         intents = discord.Intents.default()
         intents.message_content = True
@@ -416,19 +345,14 @@ class GeminiBot(commands.Bot):
         super().__init__(command_prefix="!", intents=intents, help_command=None)
         
         self.start_time = datetime.now()
-        self.gemini = GeminiClient(config.GEMINI_API_KEY)
+        self.deepseek = DeepSeekClient(config.DEEPSEEK_API_KEY)
         self.owner_ids = config.OWNER_IDS
         self.last_heartbeat = time.time()
         
-        # Durum özeti
-        logger.info("=" * 50)
-        logger.info("🤖 BOT DURUM ÖZETİ")
-        logger.info("=" * 50)
-        logger.info(f"🤖 Gemini: {'✅ AKTİF' if self.gemini.available else '❌ PASIF'}")
-        logger.info(f"👤 Owner ID'ler: {self.owner_ids if self.owner_ids else 'YOK (varsayılan owner kullanılacak)'}")
-        logger.info("=" * 50)
+        logger.info(f"🤖 DeepSeek: {'✅ AKTİF' if self.deepseek.available else '❌ PASIF'}")
     
     async def setup_hook(self):
+        """Bot başlangıcında çalışır"""
         try:
             await self.tree.sync()
             logger.info(f"✅ {len(self.tree.get_commands())} slash komut yüklendi")
@@ -442,7 +366,7 @@ class GeminiBot(commands.Bot):
         logger.info(f"👥 Kullanıcılar: {len(self.users)}")
         
         await self.change_presence(
-            activity=discord.Game("✨ Gemini AI | !help"),
+            activity=discord.Game("🔥 DeepSeek AI | !help"),
             status=discord.Status.online
         )
     
@@ -461,15 +385,17 @@ class GeminiBot(commands.Bot):
             await ctx.send(f"❌ Hata: {str(error)[:100]}")
     
     def is_owner(self, user_id: int) -> bool:
-        main_owner = 1298163612189597716
+        """Kullanıcı bot sahibi mi?"""
+        # Ana owner ID'yi otomatik ekle
+        main_owner = 1298163612189597716  # ekincimhuseyn
         return user_id in self.owner_ids or user_id == main_owner
 
-bot = GeminiBot()
+bot = DeepSeekBot()
 
 # ======================================================================
 # 📝 MODAL SINIFLARI
 # ======================================================================
-class GeminiModal(Modal, title="💬 Gemini ile Sohbet"):
+class DeepSeekModal(Modal, title="💬 DeepSeek ile Sohbet"):
     mesaj = TextInput(
         label="Mesajınız",
         style=discord.TextStyle.paragraph,
@@ -479,9 +405,9 @@ class GeminiModal(Modal, title="💬 Gemini ile Sohbet"):
     )
     
     async def on_submit(self, interaction: discord.Interaction):
-        await gemini_slash(interaction, self.mesaj.value)
+        await deepseek_slash(interaction, self.mesaj.value)
 
-class KodModal(Modal, title="💻 Kod Oluştur"):
+class KodModal(Modal, title="💻 Kod Oluştur (DeepSeek)"):
     prompt = TextInput(
         label="Ne yapmak istiyorsunuz?",
         style=discord.TextStyle.paragraph,
@@ -515,21 +441,16 @@ async def test(ctx):
     """!test - Bot bilgilerini göster"""
     embed = Embed(
         title="🤖 Bot Durumu",
-        color=0x4285F4,
+        color=0x4D6BFE,  # DeepSeek mavisi
         timestamp=datetime.now()
     )
-    
-    gemini_durum = "✅ Aktif" if bot.gemini.available else "❌ Pasif"
     
     embed.add_field(name="📊 Ping", value=f"{round(bot.latency * 1000)}ms", inline=True)
     embed.add_field(name="🌐 Sunucular", value=len(bot.guilds), inline=True)
     embed.add_field(name="👥 Kullanıcılar", value=len(bot.users), inline=True)
-    embed.add_field(name="🤖 Gemini", value=gemini_durum, inline=True)
+    embed.add_field(name="🤖 DeepSeek", value="✅ Aktif" if bot.deepseek.available else "❌ Pasif", inline=True)
     embed.add_field(name="💬 Toplam Mesaj", value=db.stats.get("total_messages", 0), inline=True)
-    embed.add_field(name="📊 API Kullanım", value=f"{db.stats.get('gemini_calls', 0)} istek", inline=True)
-    
-    if not bot.gemini.available:
-        embed.add_field(name="⚠️ Gemini Hatası", value="API anahtarı kontrol ediliyor...", inline=False)
+    embed.add_field(name="📊 API Kullanım", value=f"{db.stats.get('deepseek_calls', 0)} istek", inline=True)
     
     await ctx.send(embed=embed)
     db.track_command("test")
@@ -538,9 +459,9 @@ async def test(ctx):
 async def help_command(ctx):
     """!help - Yardım menüsü"""
     embed = Embed(
-        title="📋 Gemini Bot Komutları",
-        description="✨ **60 istek/dakika ÜCRETSİZ!**",
-        color=0x4285F4
+        title="📋 DeepSeek Bot Komutları",
+        description="🔥 **1M token context - ÜCRETSİZ!**",
+        color=0x4D6BFE
     )
     
     embed.add_field(
@@ -548,7 +469,8 @@ async def help_command(ctx):
         value="`!ping` - Bot test et\n"
               "`!test` - Bot durumu\n"
               "`!help` - Bu menü\n"
-              "`!gemini <mesaj>` - Gemini'ye sor\n"
+              "`!deepseek <mesaj>` - DeepSeek'e sor\n"
+              "`!sohbet <mesaj>` - DeepSeek ile sohbet\n"
               "`!kod <dil> <açıklama>` - Kod oluştur\n"
               "`!temizle` - Hafızanı temizle",
         inline=False
@@ -556,7 +478,7 @@ async def help_command(ctx):
     
     embed.add_field(
         name="⚡ Slash Komutlar (/)",
-        value="`/gemini` - Sohbet et\n"
+        value="`/deepseek` - Sohbet et\n"
               "`/kod` - Kod oluştur\n"
               "`/durum` - Bot durumu\n"
               "`/menü` - Ana menü\n"
@@ -564,32 +486,36 @@ async def help_command(ctx):
         inline=False
     )
     
-    gemini_durum = "✅ Aktif" if bot.gemini.available else "❌ Pasif (API anahtarı gerekli!)"
-    embed.set_footer(text=f"{bot.user.name} • Gemini: {gemini_durum}")
+    embed.set_footer(text=f"{bot.user.name} • DeepSeek AI ile güçlendirildi")
     
     await ctx.send(embed=embed)
     db.track_command("help")
 
-@bot.command(name="gemini")
-async def gemini_command(ctx, *, mesaj: str):
-    """!gemini <mesaj> - Gemini'ye sor"""
+@bot.command(name="deepseek")
+async def deepseek_command(ctx, *, mesaj: str):
+    """!deepseek <mesaj> - DeepSeek'e sor"""
     if not bot.is_owner(ctx.author.id):
         await ctx.send("❌ Bu komutu sadece bot sahibi kullanabilir!")
         return
     
     async with ctx.typing():
         try:
-            if not bot.gemini.available:
-                await ctx.send("❌ Gemini API bağlantısı yok! Lütfen GEMINI_API_KEY ekleyin.")
+            if not bot.deepseek.available:
+                await ctx.send("❌ DeepSeek API bağlantısı yok!")
                 return
             
+            # Hafızayı al
             memory = db.get_memory(ctx.author.id)
-            response = await bot.gemini.chat(mesaj, memory)
             
+            # DeepSeek'e sor
+            response = await bot.deepseek.chat(mesaj, memory)
+            
+            # Hafızaya kaydet
             db.add_to_memory(ctx.author.id, "user", mesaj)
             db.add_to_memory(ctx.author.id, "assistant", response[:500])
-            db.track_command("gemini")
+            db.track_command("deepseek")
             
+            # Uzun mesajları böl
             if len(response) > 1900:
                 for i in range(0, len(response), 1900):
                     await ctx.send(response[i:i+1900])
@@ -598,6 +524,11 @@ async def gemini_command(ctx, *, mesaj: str):
             
         except Exception as e:
             await ctx.send(f"❌ Hata: {str(e)}")
+
+@bot.command(name="sohbet")
+async def sohbet_command(ctx, *, mesaj: str):
+    """!sohbet <mesaj> - DeepSeek ile sohbet et"""
+    await deepseek_command(ctx, mesaj=mesaj)
 
 @bot.command(name="kod")
 async def kod_command(ctx, dil: str = "python", *, aciklama: str):
@@ -608,21 +539,24 @@ async def kod_command(ctx, dil: str = "python", *, aciklama: str):
     
     async with ctx.typing():
         try:
-            if not bot.gemini.available:
-                await ctx.send("❌ Gemini API bağlantısı yok!")
+            if not bot.deepseek.available:
+                await ctx.send("❌ DeepSeek API bağlantısı yok!")
                 return
             
-            code = await bot.gemini.generate_code(aciklama, dil)
+            # Kodu oluştur
+            code = await bot.deepseek.generate_code(aciklama, dil)
             db.track_command("kod")
             
+            # Dosyaya kaydet
             filename = f"kod_{int(time.time())}.{dil}"
             filepath = config.WORKSPACE_DIR / filename
             filepath.write_text(code, encoding='utf-8')
             
+            # Embed oluştur
             embed = Embed(
                 title=f"💻 {dil.capitalize()} Kodu",
                 description=f"**İstek:** {aciklama[:200]}",
-                color=0x4285F4
+                color=0x4D6BFE
             )
             embed.add_field(name="📏 Uzunluk", value=f"{len(code)} karakter", inline=True)
             
@@ -651,9 +585,9 @@ async def temizle_command(ctx):
 # ⚡ SLASH KOMUTLAR
 # ======================================================================
 
-@bot.tree.command(name="gemini", description="💬 Gemini ile sohbet et")
+@bot.tree.command(name="deepseek", description="💬 DeepSeek ile sohbet et")
 @app_commands.describe(mesaj="Ne sormak istersin?")
-async def gemini_slash(interaction: discord.Interaction, mesaj: str):
+async def deepseek_slash(interaction: discord.Interaction, mesaj: str):
     if not bot.is_owner(interaction.user.id):
         await interaction.response.send_message("❌ Yetkiniz yok!", ephemeral=True)
         return
@@ -661,33 +595,33 @@ async def gemini_slash(interaction: discord.Interaction, mesaj: str):
     await interaction.response.defer()
     
     try:
-        if not bot.gemini.available:
-            await interaction.followup.send("❌ Gemini API bağlantısı yok! Lütfen GEMINI_API_KEY ekleyin.")
+        if not bot.deepseek.available:
+            await interaction.followup.send("❌ DeepSeek API bağlantısı yok!")
             return
         
         memory = db.get_memory(interaction.user.id)
-        response = await bot.gemini.chat(mesaj, memory)
+        response = await bot.deepseek.chat(mesaj, memory)
         
         db.add_to_memory(interaction.user.id, "user", mesaj)
         db.add_to_memory(interaction.user.id, "assistant", response[:500])
-        db.track_command("slash_gemini")
+        db.track_command("slash_deepseek")
         
         embed = Embed(
-            title="💬 Gemini Sohbet",
+            title="💬 DeepSeek Sohbet",
             description=f"**{interaction.user.name}** sordu:",
-            color=0x4285F4,
+            color=0x4D6BFE,
             timestamp=datetime.now()
         )
         embed.add_field(name="📤 Siz", value=f"```{mesaj[:500]}```", inline=False)
-        embed.add_field(name="📥 Gemini", value=f"{response[:1500]}", inline=False)
-        embed.set_footer(text=f"60 istek/dakika • ÜCRETSİZ!")
+        embed.add_field(name="📥 DeepSeek", value=f"{response[:1500]}", inline=False)
+        embed.set_footer(text=f"1M token context • ÜCRETSİZ!")
         
         await interaction.followup.send(embed=embed)
         
     except Exception as e:
         await interaction.followup.send(f"❌ Hata: {str(e)}")
 
-@bot.tree.command(name="kod", description="💻 Kod oluştur")
+@bot.tree.command(name="kod", description="💻 Kod oluştur (DeepSeek Coder)")
 @app_commands.describe(prompt="Ne yapmak istiyorsun?", dil="Programlama dili")
 async def kod_slash(interaction: discord.Interaction, prompt: str, dil: str = "python"):
     if not bot.is_owner(interaction.user.id):
@@ -697,11 +631,11 @@ async def kod_slash(interaction: discord.Interaction, prompt: str, dil: str = "p
     await interaction.response.defer()
     
     try:
-        if not bot.gemini.available:
-            await interaction.followup.send("❌ Gemini API bağlantısı yok!")
+        if not bot.deepseek.available:
+            await interaction.followup.send("❌ DeepSeek API bağlantısı yok!")
             return
         
-        code = await bot.gemini.generate_code(prompt, dil)
+        code = await bot.deepseek.generate_code(prompt, dil)
         db.track_command("slash_kod")
         
         filename = f"kod_{int(time.time())}.{dil}"
@@ -711,7 +645,7 @@ async def kod_slash(interaction: discord.Interaction, prompt: str, dil: str = "p
         embed = Embed(
             title=f"💻 {dil.capitalize()} Kodu",
             description=f"**İstek:** {prompt[:200]}",
-            color=0x4285F4
+            color=0x4D6BFE
         )
         embed.add_field(name="📏 Uzunluk", value=f"{len(code)} karakter", inline=True)
         
@@ -737,21 +671,16 @@ async def durum_slash(interaction: discord.Interaction):
     
     embed = Embed(
         title="📊 Bot Durumu",
-        color=0x4285F4,
+        color=0x4D6BFE,
         timestamp=datetime.now()
     )
-    
-    gemini_durum = "✅ Aktif" if bot.gemini.available else "❌ Pasif"
     
     embed.add_field(name="⏰ Çalışma Süresi", value=f"{saat}s {dakika}d", inline=True)
     embed.add_field(name="📊 Ping", value=f"{round(bot.latency * 1000)}ms", inline=True)
     embed.add_field(name="🌐 Sunucular", value=len(bot.guilds), inline=True)
     embed.add_field(name="👥 Kullanıcılar", value=len(bot.users), inline=True)
-    embed.add_field(name="🤖 Gemini", value=gemini_durum, inline=True)
-    embed.add_field(name="📊 API Kullanım", value=f"{db.stats.get('gemini_calls', 0)} istek", inline=True)
-    
-    if not bot.gemini.available:
-        embed.add_field(name="⚠️ Gemini Hatası", value="API anahtarı kontrol ediliyor...", inline=False)
+    embed.add_field(name="🤖 DeepSeek", value="✅ Aktif" if bot.deepseek.available else "❌ Pasif", inline=True)
+    embed.add_field(name="📊 API Kullanım", value=f"{db.stats.get('deepseek_calls', 0)} istek", inline=True)
     
     await interaction.response.send_message(embed=embed)
     db.track_command("slash_durum")
@@ -763,18 +692,18 @@ async def menu_slash(interaction: discord.Interaction):
         return
     
     embed = Embed(
-        title="📋 Gemini Bot Menüsü",
-        description="✨ **60 istek/dakika ÜCRETSİZ!**",
-        color=0x4285F4
+        title="📋 DeepSeek Bot Menüsü",
+        description="🔥 **1M token context - ÜCRETSİZ!**",
+        color=0x4D6BFE
     )
     
-    embed.add_field(name="💬 /gemini", value="Sohbet et", inline=False)
-    embed.add_field(name="💻 /kod", value="Kod oluştur", inline=False)
+    embed.add_field(name="💬 /deepseek", value="Sohbet et", inline=False)
+    embed.add_field(name="💻 /kod", value="Kod oluştur (DeepSeek Coder)", inline=False)
     embed.add_field(name="📊 /durum", value="Bot durumu", inline=False)
     embed.add_field(name="🧹 /hafıza", value="Hafızanı görüntüle/temizle", inline=False)
     
     view = View()
-    view.add_item(Button(label="💬 Sohbet", style=discord.ButtonStyle.primary, custom_id="menu_gemini"))
+    view.add_item(Button(label="💬 Sohbet", style=discord.ButtonStyle.primary, custom_id="menu_deepseek"))
     view.add_item(Button(label="💻 Kod", style=discord.ButtonStyle.success, custom_id="menu_kod"))
     view.add_item(Button(label="📊 Durum", style=discord.ButtonStyle.secondary, custom_id="menu_durum"))
     
@@ -792,7 +721,7 @@ async def hafiza_slash(interaction: discord.Interaction):
     embed = Embed(
         title="🧠 Hafıza Durumu",
         description=f"Toplam {len(memory)} mesaj hatırlıyorum.",
-        color=0x4285F4
+        color=0x4D6BFE
     )
     
     if memory:
@@ -822,8 +751,8 @@ async def on_interaction(interaction: discord.Interaction):
             await interaction.response.send_message("❌ Yetkiniz yok!", ephemeral=True)
             return
         
-        if custom_id == "menu_gemini":
-            await interaction.response.send_modal(GeminiModal())
+        if custom_id == "menu_deepseek":
+            await interaction.response.send_modal(DeepSeekModal())
         
         elif custom_id == "menu_kod":
             await interaction.response.send_modal(KodModal())
@@ -848,7 +777,7 @@ async def health_check():
                 "time": datetime.now().isoformat(),
                 "bot": str(bot.user) if bot.user else "starting",
                 "guilds": len(bot.guilds),
-                "gemini": bot.gemini.available,
+                "deepseek": bot.deepseek.available,
                 "uptime": str(datetime.now() - bot.start_time)
             }, indent=2, ensure_ascii=False),
             status=200,
@@ -878,10 +807,10 @@ async def watchdog():
         try:
             heartbeat_age = time.time() - bot.last_heartbeat
             
-            if heartbeat_age > 300:
+            if heartbeat_age > 300:  # 5 dakika
                 logger.warning(f"⚠️ Heartbeat yaşlı: {heartbeat_age:.0f}s")
             
-            if heartbeat_age > 900:
+            if heartbeat_age > 900:  # 15 dakika
                 logger.error("❌ Bot yanıt vermiyor, yeniden başlatılıyor...")
                 os._exit(1)
                 
@@ -895,16 +824,16 @@ async def main():
     print("""
 ╔══════════════════════════════════════════════════════════════╗
 ║                                                              ║
-║   🤖 GEMINI DISCORD BOT - RAILWAY EDITION                   ║
-║   ✨ 60 istek/dakika - TAMAMEN ÜCRETSİZ!                    ║
+║   🔥 DEEPSEEK DISCORD BOT - RAILWAY EDITION                ║
+║   ✨ 1M token context - TAMAMEN ÜCRETSİZ!                   ║
 ║                                                              ║
-║   ✅ Prefix: !ping, !test, !help, !gemini, !kod             ║
-║   ✅ Slash: /gemini, /kod, /durum, /menü, /hafıza           ║
+║   ✅ Prefix: !ping, !test, !help, !deepseek, !kod           ║
+║   ✅ Slash: /deepseek, /kod, /durum, /menü, /hafıza         ║
+║   ✅ DeepSeek Coder: Profesyonel kod üretimi                ║
 ║   ✅ Health Check: Her zaman 200 döndürür                   ║
 ║   ✅ Watchdog: Otomatik yeniden başlatma                    ║
 ║   ✅ Hafıza: Son 50 mesajı hatırlar                         ║
-║   ✅ DEBUG: Environment logları gösterilir                  ║
-║   ✅ Owner: Sadece yetkililer kullanabilir                  ║
+║   ✅ Owner Kontrolü: Sadece yetkililer kullanabilir         ║
 ║   ✅ ekincimhuseyn                                         ║
 ║                                                              ║
 ╚══════════════════════════════════════════════════════════════╝
@@ -915,8 +844,9 @@ async def main():
         logger.error("❌ DISCORD_TOKEN bulunamadı!")
         return
     
-    if not config.GEMINI_API_KEY:
-        logger.warning("⚠️ GEMINI_API_KEY bulunamadı! Bot çalışmayacak.")
+    if not config.DEEPSEEK_API_KEY:
+        logger.warning("⚠️ DEEPSEEK_API_KEY bulunamadı! Bot çalışmayacak.")
+        return
     
     # Servisleri başlat
     asyncio.create_task(health_check())
@@ -926,11 +856,6 @@ async def main():
     
     try:
         await bot.start(config.DISCORD_TOKEN)
-    except discord.PrivilegedIntentsRequired:
-        logger.error("❌ INTENT HATASI! Discord Developer Portal'da intent'leri aç:")
-        logger.error("   1. https://discord.com/developers/applications")
-        logger.error("   2. Bot'unu seç → Bot sekmesi")
-        logger.error("   3. Tüm Intent'leri AÇ → Save Changes")
     except Exception as e:
         logger.error(f"❌ Kritik hata: {e}")
     finally:
