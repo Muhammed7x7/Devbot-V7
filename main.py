@@ -1,243 +1,131 @@
-import discord
-from discord.ext import commands
-import requests
-import asyncio
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+
 import os
 import json
 import time
-from aiohttp import web
+from datetime import datetime
+import requests
+import discord
+from discord.ext import commands
+from dotenv import load_dotenv
 
+# ================================
+# Load env
+# ================================
+load_dotenv()
 DISCORD_TOKEN = os.getenv("DISCORD_TOKEN")
+DEEPSEEK_KEY = os.getenv("DEEPSEEK_API_KEY")
+OWNER_IDS = [int(x) for x in os.getenv("OWNER_IDS", "").split(",")]
 
-OWNER_IDS = [int(x) for x in os.getenv("OWNER_IDS","").split(",") if x]
+# ================================
+# Direktories
+# ================================
+BASE_DIR = "./data"
+MEMORY_FILE = os.path.join(BASE_DIR, "memory.json")
+os.makedirs(BASE_DIR, exist_ok=True)
 
-# ==============================
-# MEMORY SYSTEM
-# ==============================
+# ================================
+# Memory yönetimi
+# ================================
+if os.path.exists(MEMORY_FILE):
+    with open(MEMORY_FILE, "r", encoding="utf-8") as f:
+        memory = json.load(f)
+else:
+    memory = {}
 
-memory = {}
+def save_memory():
+    with open(MEMORY_FILE, "w", encoding="utf-8") as f:
+        json.dump(memory, f, indent=2, ensure_ascii=False)
 
-def add_memory(user, role, text):
-
-    uid = str(user)
-
+def add_to_memory(user_id, role, content):
+    uid = str(user_id)
     if uid not in memory:
         memory[uid] = []
+    memory[uid].append({"role": role, "content": content, "time": time.time()})
+    if len(memory[uid]) > 50:
+        memory[uid] = memory[uid][-50:]
+    save_memory()
 
-    memory[uid].append({
-        "role": role,
-        "content": text
-    })
+def get_memory(user_id):
+    return memory.get(str(user_id), [])
 
-    if len(memory[uid]) > 20:
-        memory[uid] = memory[uid][-20:]
+# ================================
+# DeepSeek Chat
+# ================================
+def deepseek_chat(message):
+    url = "https://api.deepseek.ai/v1/chat"
+    headers = {
+        "Authorization": f"Bearer {DEEPSEEK_KEY}",
+        "Content-Type": "application/json"
+    }
+    payload = {
+        "model": "gpt-4o-mini",
+        "messages": [{"role": "user", "content": message}]
+    }
+    try:
+        r = requests.post(url, json=payload, headers=headers, timeout=30)
+        data = r.json()
+        return data["choices"][0]["message"]["content"]
+    except Exception as e:
+        return f"❌ DeepSeek error: {str(e)}"
 
-def get_memory(user):
-    return memory.get(str(user), [])
+def is_owner(user_id):
+    return user_id in OWNER_IDS
 
-def clear_memory(user):
-    memory[str(user)] = []
-
-# ==============================
-# GROK CLIENT
-# ==============================
-
-class GrokClient:
-
-    def __init__(self):
-        self.url = "https://grok.com/api/chat"
-
-    async def chat(self, message):
-
-        try:
-
-            payload = {
-                "messages":[
-                    {"role":"user","content":message}
-                ]
-            }
-
-            loop = asyncio.get_event_loop()
-
-            r = await loop.run_in_executor(
-                None,
-                lambda: requests.post(self.url,json=payload,timeout=30)
-            )
-
-            data = r.json()
-
-            return data.get("response","No response")
-
-        except Exception as e:
-            return str(e)
-
-grok = GrokClient()
-
-# ==============================
-# DISCORD BOT
-# ==============================
-
+# ================================
+# Discord Bot
+# ================================
 intents = discord.Intents.all()
-
-bot = commands.Bot(
-    command_prefix="!",
-    intents=intents
-)
-
-start_time = time.time()
-
-# ==============================
-# READY
-# ==============================
+intents.message_content = True
+bot = commands.Bot(command_prefix="!", intents=intents)
 
 @bot.event
 async def on_ready():
+    print(f"✅ Bot hazır: {bot.user}")
+    print(f"🌐 Sunucular: {len(bot.guilds)}")
 
-    print("Bot ready:", bot.user)
+# ----------------
+# Ping komutu
+# ----------------
+@bot.command(name="ping")
+async def ping(ctx):
+    await ctx.send(f"Pong! {round(bot.latency*1000)}ms")
 
-    await bot.change_presence(
-        activity=discord.Game("Grok AI 🤖")
-    )
+# ----------------
+# Chat komutu
+# ----------------
+@bot.command(name="chat")
+async def chat(ctx, *, mesaj: str):
+    if not is_owner(ctx.author.id):
+        await ctx.send("❌ Yetkiniz yok!")
+        return
 
-# ==============================
-# CHAT
-# ==============================
+    await ctx.typing()
+    # memory ekle
+    add_to_memory(ctx.author.id, "user", mesaj)
+    response = deepseek_chat(mesaj)
+    add_to_memory(ctx.author.id, "assistant", response)
 
-@bot.command()
-async def chat(ctx, *, message):
+    if len(response) > 1900:
+        for i in range(0, len(response), 1900):
+            await ctx.send(response[i:i+1900])
+    else:
+        await ctx.send(response)
 
-    if ctx.author.id not in OWNER_IDS:
-        return await ctx.send("yetki yok")
+# ----------------
+# Memory temizleme
+# ----------------
+@bot.command(name="clear")
+async def clear_memory(ctx):
+    if not is_owner(ctx.author.id):
+        await ctx.send("❌ Yetkiniz yok!")
+        return
+    memory[str(ctx.author.id)] = []
+    save_memory()
+    await ctx.send("✅ Memory temizlendi!")
 
-    async with ctx.typing():
-
-        add_memory(ctx.author.id,"user",message)
-
-        response = await grok.chat(message)
-
-        add_memory(ctx.author.id,"assistant",response)
-
-        if len(response) > 1900:
-
-            for i in range(0,len(response),1900):
-                await ctx.send(response[i:i+1900])
-
-        else:
-
-            await ctx.send(response)
-
-# ==============================
-# CODE GENERATOR
-# ==============================
-
-@bot.command()
-async def code(ctx, language="python", *, prompt=""):
-
-    if ctx.author.id not in OWNER_IDS:
-        return await ctx.send("yetki yok")
-
-    async with ctx.typing():
-
-        q = f"write {language} code: {prompt}"
-
-        response = await grok.chat(q)
-
-        await ctx.send(f"```{language}\n{response}\n```")
-
-# ==============================
-# IMAGE PROMPT
-# ==============================
-
-@bot.command()
-async def image(ctx, *, prompt):
-
-    async with ctx.typing():
-
-        q = f"write a detailed image prompt for: {prompt}"
-
-        response = await grok.chat(q)
-
-        embed = discord.Embed(
-            title="AI Image Prompt",
-            description=response
-        )
-
-        await ctx.send(embed=embed)
-
-# ==============================
-# STATUS
-# ==============================
-
-@bot.command()
-async def status(ctx):
-
-    uptime = int(time.time() - start_time)
-
-    embed = discord.Embed(
-        title="Bot Status"
-    )
-
-    embed.add_field(
-        name="Ping",
-        value=f"{round(bot.latency*1000)}ms"
-    )
-
-    embed.add_field(
-        name="Uptime",
-        value=f"{uptime}s"
-    )
-
-    embed.add_field(
-        name="Servers",
-        value=len(bot.guilds)
-    )
-
-    await ctx.send(embed=embed)
-
-# ==============================
-# CLEAR MEMORY
-# ==============================
-
-@bot.command()
-async def clear(ctx):
-
-    clear_memory(ctx.author.id)
-
-    await ctx.send("memory cleared")
-
-# ==============================
-# HEALTH SERVER
-# ==============================
-
-async def health():
-
-    async def handler(request):
-
-        return web.Response(text="alive")
-
-    app = web.Application()
-
-    app.router.add_get("/", handler)
-    app.router.add_get("/health", handler)
-
-    port = int(os.getenv("PORT",8080))
-
-    runner = web.AppRunner(app)
-
-    await runner.setup()
-
-    site = web.TCPSite(runner,"0.0.0.0",port)
-
-    await site.start()
-
-# ==============================
-# MAIN
-# ==============================
-
-async def main():
-
-    asyncio.create_task(health())
-
-    await bot.start(DISCORD_TOKEN)
-
-asyncio.run(main())
+# ================================
+# Bot Run
+# ================================
+bot.run(DISCORD_TOKEN)
